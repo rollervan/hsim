@@ -200,9 +200,9 @@ with st.sidebar:
     
     meses_carencia = 0
     if es_autopromotor:
-        meses_carencia = st.number_input("Periodo Carencia (Meses)", value=18, min_value=1, max_value=36)
+        meses_carencia = st.number_input("Periodo Carencia (Meses)", value=11, min_value=1, max_value=36)
         
-    capital_init = st.number_input("Importe Préstamo (€)", value=200000, step=1000)
+    capital_init = st.number_input("Importe Préstamo (€)", value=180000, step=1000)
     anios_p = st.number_input("Plazo Amortización (Años)", value=25, min_value=1)
     tipo_reduc = st.selectbox("Destino Amortización Anticipada", ["REDUCCIÓN DE PLAZO", "REDUCCIÓN DE CUOTA"])
     
@@ -279,8 +279,24 @@ else:
     n_sims = 1
 
 with st.expander("PLANIFICACIÓN DE APORTACIONES EXTRAORDINARIAS", expanded=False):
-    cols_a = st.columns(6)
-    amort_list = [cols_a[i%6].number_input(f"Año {i+1}", 0, 100000, 0, step=1000, key=f"a{i}") for i in range(anios_p)]
+    # Generamos dinámicamente una columna por cada año del préstamo
+    cols_a = st.columns(anios_p)
+    amort_list = []
+    
+    for i in range(anios_p):
+        with cols_a[i]:
+            # Indicador del año compacto (A1, A2...) para ahorrar espacio
+            st.markdown(f"<div style='text-align:center; font-size:10px; color:#666;'>A{i+1}</div>", unsafe_allow_html=True)
+            val = st.slider(
+                label=f"Año {i+1+anios_fijos}",
+                min_value=0, 
+                max_value=10000, 
+                value=0, 
+                step=1000, 
+                key=f"a{i}",
+                label_visibility="collapsed" # Ocultamos la etiqueta estándar para que quepan
+            )
+            amort_list.append(val)
 
 # ==========================================
 # 4. PROCESAMIENTO
