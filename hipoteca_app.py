@@ -13,12 +13,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilos simples y limpios
+# Estilos
 st.markdown("""
 <style>
     .block-container {padding-top: 1.5rem; padding-bottom: 3rem;}
     h1, h2, h3 {font-family: sans-serif; color: #333;}
-    .stMetric {background-color: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px;}
+    .stMetric {background-color: #f9f9f9; border: 1px solid #ddd; padding: 15px; border-radius: 5px;}
     div[data-testid="stExpander"] {border: 1px solid #ddd; border-radius: 5px;}
 </style>
 """, unsafe_allow_html=True)
@@ -81,7 +81,8 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 if es_autopromotor and mes_global == meses_carencia + 1:
                      saldo_real = round(float(capital), 2)
                 
-                if saldo_real <= 0.01:
+                # CORRECCIÓN DE PRECISIÓN: Si saldo es menor a 1 euro, liquidamos
+                if saldo_real <= 1.0:
                     saldo_real = 0; cuota = 0; interes_m = 0; capital_m = 0
                 else:
                     base_calc = saldo_teorico if tipo_reduc == 'PLAZO' else saldo_real
@@ -118,7 +119,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
             })
             
             if not en_periodo_carencia:
-                if m == 11 and saldo_real > 0 and puntos_amort[anio] > 0:
+                if m == 11 and saldo_real > 1.0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
                     saldo_real = round(saldo_real - ejec, 2)
                     if tipo_reduc == 'CUOTA': saldo_teorico = saldo_real
@@ -146,10 +147,9 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 with st.sidebar:
     st.header("Configuración")
     
-    # MODO
     comparar = st.checkbox("Comparar dos opciones", value=False)
     
-    # --- INICIALIZACIÓN DE VARIABLES (Evita NameError) ---
+    # Inicialización
     es_autopromotor = False
     meses_carencia = 0
     s_hogar_A, s_vida_A = 0, 0
@@ -164,7 +164,6 @@ with st.sidebar:
     st.markdown("---")
     
     if comparar:
-        # --- COMPARACIÓN A vs B ---
         st.subheader("Opción A vs Opción B")
         colA, colB = st.columns(2)
         
@@ -213,12 +212,10 @@ with st.sidebar:
             s_vida_B = st.number_input("Vida B", value=300, key="svB")
                 
     else:
-        # --- MODO INDIVIDUAL ---
         st.subheader("Datos Préstamo")
         modo_A = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
         
         es_autopromotor = st.checkbox("Autopromoción", value=True)
-        
         if es_autopromotor:
             meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
             
@@ -238,12 +235,10 @@ with st.sidebar:
             anios_fijos_A = c2.number_input("Años Fijos", value=7)
             diferencial_A = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
         
-        # Seguros en modo individual
         st.markdown("**Seguros Vinculados**")
         s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=300)
         s_vida_A = st.number_input("Seguro Vida (€/año)", value=300)
 
-        # Replicamos para B (para evitar fallos de referencia)
         modo_B, anios_B = modo_A, anios_A
         tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
         s_hogar_B, s_vida_B = s_hogar_A, s_vida_A
@@ -257,7 +252,6 @@ with st.sidebar:
         g_gasolina = st.number_input("Transporte", value=100)
         g_otros = st.number_input("Otros", value=200)
 
-    # Configuración Euríbor
     caminos_eur = []
     n_sims = 1
     
@@ -297,7 +291,6 @@ with st.sidebar:
 
 st.title("Simulador de Hipoteca")
 
-# AMORTIZACIONES
 with st.expander("Amortización Anticipada"):
     st.info("Capital extra anual (Máx. 10.000€)")
     cols_a = st.columns(4) 
@@ -307,10 +300,8 @@ with st.expander("Amortización Anticipada"):
         val = cols_a[i % 4].slider(f"Año {i+1}", 0, 10000, 0, step=500, key=f"s_a{i}")
         amort_list.append(val)
 
-# Detectamos si hay amortización real para evitar errores de cálculo (0 euros / -1 meses)
 hay_amortizacion = sum(amort_list) > 0
 
-# CÁLCULOS
 kpis_int_A, kpis_int_B = [], []
 kpis_pat_A = []
 kpis_ahorro_A = []
@@ -321,15 +312,13 @@ df_base_median_A = None
 
 total_gastos = g_comida + g_suministros + g_gasolina + g_otros
 
-# Costes de seguro separados
 coste_mes_seguros_A = (s_hogar_A + s_vida_A) / 12
 coste_mes_seguros_B = (s_hogar_B + s_vida_B) / 12
 
 if n_sims > 100: prog_bar = st.progress(0)
 
 for i, camino in enumerate(caminos_eur):
-    # --- ESCENARIO A ---
-    # En modo comparación forzamos autopromotor a False para simplificar, o usa el valor si es individual
+    # ESCENARIO A
     ap_flag = es_autopromotor if not comparar else False
     carencia_val = meses_carencia if not comparar else 0
     
@@ -350,7 +339,7 @@ for i, camino in enumerate(caminos_eur):
         kpis_pat_A.append(df_A['Patrimonio'].iloc[-1])
         eur_matrix.append(camino)
 
-    # --- ESCENARIO B ---
+    # ESCENARIO B
     if comparar:
         df_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino, amort_list, tipo_reduc, False, 0)
         df_B['Seguros'] = np.where(df_B['Saldo'] > 0, coste_mes_seguros_B, 0)
@@ -372,7 +361,6 @@ if n_sims > 1:
     ap_flag = es_autopromotor if not comparar else False
     carencia_val = meses_carencia if not comparar else 0
 
-    # Recalcular A
     df_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, amort_list, tipo_reduc, ap_flag, carencia_val)
     df_median_A['Seguros'] = np.where(df_median_A['Saldo'] > 0, coste_mes_seguros_A, 0)
     df_median_A['Ahorro_Liq'] = ahorro_inicial + (ingresos - (df_median_A['Cuota'] + df_median_A['Seguros'] + total_gastos)).cumsum() - df_median_A['Amort_Extra'].cumsum()
@@ -382,26 +370,22 @@ if n_sims > 1:
         df_base_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
 
     if comparar:
-        # Recalcular B
         df_median_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino_med, amort_list, tipo_reduc, False, 0)
         df_median_B['Seguros'] = np.where(df_median_B['Saldo'] > 0, coste_mes_seguros_B, 0)
 
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
-meses_A = len(df_median_A[df_median_A['Saldo'] > 0])
+
+# CÁLCULO DE MESES REALES (Evitando 0.00 decimales)
+meses_A = len(df_median_A[df_median_A['Saldo'] > 1.0])
 
 idx_ref = 0 if not (es_autopromotor and not comparar) else meses_carencia
 if idx_ref >= len(df_median_A): idx_ref = 0
 cuota_ini_A = df_median_A.iloc[idx_ref]['Cuota']
 
-# ==========================================
-# DASHBOARD
-# ==========================================
-
 if comparar:
-    # --- VISTA COMPARACIÓN ---
     coste_B = df_median_B['Intereses'].sum() + df_median_B['Seguros'].sum()
-    meses_B = len(df_median_B[df_median_B['Saldo'] > 0])
+    meses_B = len(df_median_B[df_median_B['Saldo'] > 1.0])
     cuota_ini_B = df_median_B.iloc[0]['Cuota']
 
     st.markdown("### Resultados Comparativa")
@@ -411,8 +395,14 @@ if comparar:
     col_c1.metric("Coste Total (Int + Seguros)", f"{coste_A:,.0f} € vs {coste_B:,.0f} €", f"{dif_coste:,.0f} € (Diferencia)", delta_color="inverse")
     
     dif_meses = meses_B - meses_A
-    def fmt_t(m): return f"{m//12}a {m%12}m"
-    col_c2.metric("Tiempo Total", f"{fmt_t(meses_A)} vs {fmt_t(meses_B)}", f"{dif_meses} meses", delta_color="inverse")
+    def fmt_t(m): 
+        a = m // 12
+        r = m % 12
+        if a > 0 and r > 0: return f"{a}a {r}m"
+        elif a > 0: return f"{a} años"
+        else: return f"{r} meses"
+
+    col_c2.metric("Duración Real", f"{fmt_t(meses_A)} vs {fmt_t(meses_B)}", f"{dif_meses} meses", delta_color="inverse")
     
     dif_cuota = cuota_ini_B - cuota_ini_A
     col_c3.metric("Cuota Inicial", f"{cuota_ini_A:,.0f} € vs {cuota_ini_B:,.0f} €", f"{dif_cuota:,.0f} €", delta_color="inverse")
@@ -447,20 +437,34 @@ if comparar:
 else:
     # --- VISTA INDIVIDUAL ---
     
-    # CORRECCIÓN DE ERROR -1 MESES
     if hay_amortizacion:
+        # Calcular meses ahorrados respecto al teórico
         meses_ahorrados = max(0, (anios_A * 12) - meses_A)
+        
+        # Nueva duración real
+        anios_final = meses_A // 12
+        meses_final = meses_A % 12
+        if meses_final > 0: 
+            txt_duracion = f"{anios_final} años y {meses_final} meses"
+        else:
+            txt_duracion = f"{anios_final} años"
+
+        # Tiempo ahorrado
         a_save = meses_ahorrados // 12
         m_save = meses_ahorrados % 12
-        
         if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
         elif a_save > 0: txt_tiempo = f"-{a_save} años"
         elif m_save > 0: txt_tiempo = f"-{m_save} meses"
-        else: txt_tiempo = "0 meses"
+        else: 
+            # Si se elige reducir cuota, no se ahorra tiempo
+            if tipo_reduc == 'Reducir CUOTA':
+                txt_tiempo = "Reducción de Cuota"
+            else:
+                txt_tiempo = "0 meses"
         
         ahorro_int = np.median(kpis_ahorro_A)
     else:
-        # Si no hay amortización, forzamos 0 para limpieza
+        txt_duracion = f"{anios_A} años"
         txt_tiempo = "Sin cambios"
         ahorro_int = 0
 
@@ -468,8 +472,11 @@ else:
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
     k2.metric("Total Intereses", f"{df_median_A['Intereses'].sum():,.0f} €", delta_color="inverse")
-    k3.metric("Coste Total (Int+Seg)", f"{coste_A:,.0f} €", delta_color="inverse")
-    k4.metric("Ahorro por Amortizar", f"{ahorro_int:,.0f} €", txt_tiempo)
+    
+    # METRICA NUEVA: DURACIÓN FINAL
+    k3.metric("Duración Final", txt_duracion, txt_tiempo, delta_color="inverse")
+    
+    k4.metric("Ahorro Intereses", f"{ahorro_int:,.0f} €", "por amortizar")
     
     st.markdown("---")
 
