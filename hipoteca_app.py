@@ -279,24 +279,23 @@ else:
     n_sims = 1
 
 with st.expander("PLANIFICACIÓN DE APORTACIONES EXTRAORDINARIAS", expanded=False):
-    # Generamos dinámicamente una columna por cada año del préstamo
-    cols_a = st.columns(anios_p)
-    amort_list = []
+    st.markdown("Defina el capital adicional a amortizar mediante deslizadores:")
     
+    # Se define una retícula de 3 columnas para dar espacio al slider
+    cols_a = st.columns(3) 
+    
+    amort_list = []
     for i in range(anios_p):
-        with cols_a[i]:
-            # Indicador del año compacto (A1, A2...) para ahorrar espacio
-            st.markdown(f"<div style='text-align:center; font-size:10px; color:#666;'>A{i+1}</div>", unsafe_allow_html=True)
-            val = st.slider(
-                label=f"Año {i+1+anios_fijos}",
-                min_value=0, 
-                max_value=10000, 
-                value=0, 
-                step=1000, 
-                key=f"a{i}",
-                label_visibility="collapsed" # Ocultamos la etiqueta estándar para que quepan
-            )
-            amort_list.append(val)
+        # El índice [i % 3] asigna cíclicamente: Col 1, Col 2, Col 3, vuelta a Col 1...
+        val = cols_a[i % 3].slider(
+            label=f"Aportación Año {i+1}",
+            min_value=0,
+            max_value=10000,
+            value=0,
+            step=1000,
+            key=f"amort_slider_{i}"
+        )
+        amort_list.append(val)
 
 # ==========================================
 # 4. PROCESAMIENTO
