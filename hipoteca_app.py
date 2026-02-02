@@ -167,19 +167,19 @@ with st.sidebar:
     
     c1, c2 = st.columns(2)
     if modo_h == "FIJA":
-        tipo_fijo = c1.number_input("TIN Fijo (%)", value=2.50, step=0.05)
+        tipo_fijo = c1.number_input("TIN Fijo (%)", value=2.25, step=0.05)
     elif modo_h == "VARIABLE":
         diferencial = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
     elif modo_h == "MIXTA":
         tipo_fijo = c1.number_input("Fijo (%)", value=2.25, step=0.05)
-        anios_fijos = c2.number_input("Años Fijos", value=5)
+        anios_fijos = c2.number_input("Años Fijos", value=7)
         diferencial = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
 
     tipo_reduc = st.radio("Amortizar reduciendo:", ["PLAZO", "CUOTA"])
 
     with st.expander("Gastos y Vinculaciones", expanded=False):
-        s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
-        s_vida = st.number_input("Seguro Vida (€/año)", value=300)
+        s_hogar = st.number_input("Seguro Hogar (€/año)", value=250)
+        s_vida = st.number_input("Seguro Vida (€/año)", value=200)
         st.markdown("**Gastos Mensuales**")
         g_comida = st.number_input("Comida", value=300)
         g_suministros = st.number_input("Suministros", value=150)
