@@ -223,7 +223,7 @@ with st.sidebar:
 # 3. ÁREA PRINCIPAL
 # ==========================================
 
-st.title("Simulador Financiero Pro 4.3")
+st.title("Simulador Financiero")
 st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
 
 # ==========================================
