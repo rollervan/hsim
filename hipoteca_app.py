@@ -118,11 +118,18 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 'Fase': 'Carencia' if en_periodo_carencia else 'Amortización'
             })
             
+            # APLICACIÓN DE AMORTIZACIÓN ANTICIPADA
             if not en_periodo_carencia:
+                # Solo aplicamos si hay saldo vivo
                 if m == 11 and saldo_real > 1.0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
                     saldo_real = round(saldo_real - ejec, 2)
-                    if tipo_reduc == 'CUOTA': saldo_teorico = saldo_real
+                    
+                    # Si reducimos plazo, el saldo teórico no cambia
+                    # Si reducimos cuota, el saldo teórico baja para recalcular cuota siguiente
+                    if tipo_reduc == 'CUOTA': 
+                        saldo_teorico = saldo_real
+                        
                     data[-1]['Amort_Extra'] = ejec
                     data[-1]['Capital'] = round(data[-1]['Capital'] + ejec, 2)
             
@@ -322,8 +329,10 @@ for i, camino in enumerate(caminos_eur):
     ap_flag = es_autopromotor if not comparar else False
     carencia_val = meses_carencia if not comparar else 0
     
+    # 1. Calculamos con amortización (REAL)
     df_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val)
     
+    # 2. Calculamos SIN amortización (BASE) para comparar siempre manzanas con manzanas
     if not comparar:
         df_base_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
         kpis_ahorro_A.append(df_base_A['Intereses'].sum() - df_A['Intereses'].sum())
@@ -376,8 +385,11 @@ if n_sims > 1:
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
 
-# CÁLCULO DE MESES REALES (Evitando 0.00 decimales)
-meses_A = len(df_median_A[df_median_A['Saldo'] > 1.0])
+# ==========================================
+# CÁLCULO DE DURACIÓN EXACTA
+# ==========================================
+# Contamos cuántos meses hay con saldo > 1.0 (para evitar errores de decimales)
+meses_reales_A = len(df_median_A[df_median_A['Saldo'] > 1.0])
 
 idx_ref = 0 if not (es_autopromotor and not comparar) else meses_carencia
 if idx_ref >= len(df_median_A): idx_ref = 0
@@ -385,7 +397,7 @@ cuota_ini_A = df_median_A.iloc[idx_ref]['Cuota']
 
 if comparar:
     coste_B = df_median_B['Intereses'].sum() + df_median_B['Seguros'].sum()
-    meses_B = len(df_median_B[df_median_B['Saldo'] > 1.0])
+    meses_reales_B = len(df_median_B[df_median_B['Saldo'] > 1.0])
     cuota_ini_B = df_median_B.iloc[0]['Cuota']
 
     st.markdown("### Resultados Comparativa")
@@ -394,7 +406,7 @@ if comparar:
     dif_coste = coste_B - coste_A
     col_c1.metric("Coste Total (Int + Seguros)", f"{coste_A:,.0f} € vs {coste_B:,.0f} €", f"{dif_coste:,.0f} € (Diferencia)", delta_color="inverse")
     
-    dif_meses = meses_B - meses_A
+    dif_meses = meses_reales_B - meses_reales_A
     def fmt_t(m): 
         a = m // 12
         r = m % 12
@@ -402,7 +414,7 @@ if comparar:
         elif a > 0: return f"{a} años"
         else: return f"{r} meses"
 
-    col_c2.metric("Duración Real", f"{fmt_t(meses_A)} vs {fmt_t(meses_B)}", f"{dif_meses} meses", delta_color="inverse")
+    col_c2.metric("Duración Real", f"{fmt_t(meses_reales_A)} vs {fmt_t(meses_reales_B)}", f"{dif_meses} meses", delta_color="inverse")
     
     dif_cuota = cuota_ini_B - cuota_ini_A
     col_c3.metric("Cuota Inicial", f"{cuota_ini_A:,.0f} € vs {cuota_ini_B:,.0f} €", f"{dif_cuota:,.0f} €", delta_color="inverse")
@@ -438,33 +450,41 @@ else:
     # --- VISTA INDIVIDUAL ---
     
     if hay_amortizacion:
-        # Calcular meses ahorrados respecto al teórico
-        meses_ahorrados = max(0, (anios_A * 12) - meses_A)
+        # 1. Calculamos duración del escenario BASE (sin amortizar)
+        meses_base = len(df_base_median_A[df_base_median_A['Saldo'] > 1.0])
         
-        # Nueva duración real
-        anios_final = meses_A // 12
-        meses_final = meses_A % 12
-        if meses_final > 0: 
-            txt_duracion = f"{anios_final} años y {meses_final} meses"
-        else:
-            txt_duracion = f"{anios_final} años"
+        # 2. Calculamos duración del escenario ACTUAL (con amortización)
+        meses_actual = len(df_median_A[df_median_A['Saldo'] > 1.0])
+        
+        # 3. La diferencia es el ahorro REAL
+        meses_ahorrados = max(0, meses_base - meses_actual)
+        
+        # Formateo de la duración final
+        a_fin = meses_actual // 12
+        m_fin = meses_actual % 12
+        if m_fin > 0: txt_duracion = f"{a_fin} años y {m_fin} meses"
+        else: txt_duracion = f"{a_fin} años"
 
-        # Tiempo ahorrado
+        # Formateo del ahorro
         a_save = meses_ahorrados // 12
         m_save = meses_ahorrados % 12
-        if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
-        elif a_save > 0: txt_tiempo = f"-{a_save} años"
-        elif m_save > 0: txt_tiempo = f"-{m_save} meses"
-        else: 
-            # Si se elige reducir cuota, no se ahorra tiempo
-            if tipo_reduc == 'Reducir CUOTA':
-                txt_tiempo = "Reducción de Cuota"
-            else:
-                txt_tiempo = "0 meses"
+        
+        if tipo_reduc == 'Reducir PLAZO':
+            if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
+            elif a_save > 0: txt_tiempo = f"-{a_save} años"
+            elif m_save > 0: txt_tiempo = f"-{m_save} meses"
+            else: txt_tiempo = "0 meses"
+        else:
+            txt_tiempo = "Baja cuota (mismo plazo)"
+            txt_duracion = f"{meses_base // 12} años" # Si bajamos cuota, el plazo se mantiene
         
         ahorro_int = np.median(kpis_ahorro_A)
     else:
-        txt_duracion = f"{anios_A} años"
+        # Sin amortización
+        meses_base = len(df_median_A[df_median_A['Saldo'] > 1.0])
+        txt_duracion = f"{meses_base // 12} años"
+        if meses_base % 12 > 0: txt_duracion += f" y {meses_base % 12} meses"
+        
         txt_tiempo = "Sin cambios"
         ahorro_int = 0
 
@@ -473,10 +493,10 @@ else:
     k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
     k2.metric("Total Intereses", f"{df_median_A['Intereses'].sum():,.0f} €", delta_color="inverse")
     
-    # METRICA NUEVA: DURACIÓN FINAL
-    k3.metric("Duración Final", txt_duracion, txt_tiempo, delta_color="inverse")
+    # NUEVA MÉTRICA DE TIEMPO CLARA
+    k3.metric("Plazo Final", txt_duracion, delta_color="off")
     
-    k4.metric("Ahorro Intereses", f"{ahorro_int:,.0f} €", "por amortizar")
+    k4.metric("Ahorro (Intereses / Tiempo)", f"{ahorro_int:,.0f} €", txt_tiempo)
     
     st.markdown("---")
 
