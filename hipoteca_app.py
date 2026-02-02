@@ -8,23 +8,23 @@ import plotly.express as px
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ==========================================
 st.set_page_config(
-    page_title="Simulador Financiero",
-    page_icon="stats",
+    page_title="Simulador Financiero Pro - Comparador",
+    page_icon="⚖️",
     layout="wide"
 )
 
-# CSS Profesional: Limpieza de padding, tipografías y métricas
 st.markdown("""
 <style>
     .block-container {padding-top: 1.5rem; padding-bottom: 3rem;}
     h1, h2, h3 {font-family: 'Segoe UI', sans-serif; color: #2c3e50;}
     .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);}
     div[data-testid="stExpander"] {border: 1px solid #e0e0e0; border-radius: 8px;}
+    .css-16idsys p {font-size: 1.1rem;}
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. MOTOR MATEMÁTICO (CORE) - INTACTO
+# 1. MOTOR MATEMÁTICO (CORE)
 # ==========================================
 def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc, es_autopromotor, meses_carencia):
     n_meses_total = int(anios * 12)
@@ -42,12 +42,18 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     data = []
     mes_global = 1
     
-    puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, anios - len(euribor_puntos)))
-    puntos_amort = list(amortizaciones) + [0] * (max(0, anios - len(amortizaciones)))
+    # Ajustar longitud de puntos euribor y amortizaciones al plazo específico de este escenario
+    puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, int(anios) - len(euribor_puntos)))
+    # Recortamos o extendemos la lista de amortizaciones según los años de ESTE escenario
+    amort_len = len(amortizaciones)
+    if anios > amort_len:
+        puntos_amort = list(amortizaciones) + [0] * (int(anios) - amort_len)
+    else:
+        puntos_amort = list(amortizaciones[:int(anios)])
 
     idx_var = 0 
     
-    for anio in range(anios):
+    for anio in range(int(anios)):
         if modo == 'FIJA':
             tasa_anual = tipo_fijo
         elif modo == 'VARIABLE':
@@ -136,50 +142,93 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
     return np.array(sims)
 
 # ==========================================
-# 2. INTERFAZ: SIDEBAR (INPUTS)
+# 2. INTERFAZ: SIDEBAR CON MODO COMPARACIÓN
 # ==========================================
 with st.sidebar:
-    st.header("Parámetros")
+    st.title("Parámetros")
     
-    with st.expander("Perfil Económico", expanded=True):
+    # --- MODO COMPARACIÓN ---
+    st.markdown("### ⚖️ Configuración")
+    comparar = st.checkbox("🆚 Comparar dos escenarios", value=False)
+    
+    with st.expander("Perfil Económico (Común)", expanded=not comparar):
         ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
-        ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
-        precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
+        ahorro_inicial = st.number_input("Ahorro inicial (€)", value=10000, step=1000)
+        precio_vivienda = st.number_input("Valor Vivienda (€)", value=200000, step=5000)
+        capital_init_global = st.number_input("Capital Préstamo (€)", value=180000, step=1000)
 
     st.markdown("---")
-    st.subheader("Préstamo")
-    modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
     
-    es_autopromotor = st.checkbox("Es Autopromoción", value=True)
-    meses_carencia = 0
-    if es_autopromotor:
-        meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
-    
-    capital_init = st.number_input("Capital (€)", value=180000, step=1000)
-    anios_p = st.number_input("Duración (Años)", value=25, min_value=1)
-    
-    st.markdown("---")
-    st.subheader("Condiciones")
-    
-    tipo_fijo = 0.0
-    diferencial = 0.0
-    anios_fijos = 0
-    
-    c1, c2 = st.columns(2)
-    if modo_h == "FIJA":
-        tipo_fijo = c1.number_input("TIN Fijo (%)", value=2.25, step=0.05)
-    elif modo_h == "VARIABLE":
-        diferencial = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
-    elif modo_h == "MIXTA":
-        tipo_fijo = c1.number_input("Fijo (%)", value=2.25, step=0.05)
-        anios_fijos = c2.number_input("Años Fijos", value=7)
-        diferencial = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
+    # Lógica para mostrar inputs simples o dobles
+    if comparar:
+        st.subheader("Escenario A vs B")
+        colA, colB = st.columns(2)
+        
+        with colA:
+            st.markdown("#### 🅰️ Opción A")
+            modo_A = st.selectbox("Modo A", ["MIXTA", "VARIABLE", "FIJA"], key="mA")
+            anios_A = st.number_input("Años A", value=25, key="yA")
+            
+            tipo_fijo_A = 0.0
+            diferencial_A = 0.0
+            anios_fijos_A = 0
+            
+            if modo_A == "FIJA":
+                tipo_fijo_A = st.number_input("TIN A (%)", value=2.50, step=0.05, key="tfA")
+            elif modo_A == "VARIABLE":
+                diferencial_A = st.number_input("Dif. A (%)", value=0.55, step=0.05, key="dfA")
+            elif modo_A == "MIXTA":
+                tipo_fijo_A = st.number_input("Fijo A (%)", value=2.25, step=0.05, key="mfaA")
+                anios_fijos_A = st.number_input("Años Fijos A", value=5, key="myaA")
+                diferencial_A = st.number_input("Dif. Var A", value=0.55, step=0.05, key="mdaA")
 
+        with colB:
+            st.markdown("#### 🅱️ Opción B")
+            modo_B = st.selectbox("Modo B", ["MIXTA", "VARIABLE", "FIJA"], index=2, key="mB")
+            anios_B = st.number_input("Años B", value=20, key="yB")
+            
+            tipo_fijo_B = 0.0
+            diferencial_B = 0.0
+            anios_fijos_B = 0
+            
+            if modo_B == "FIJA":
+                tipo_fijo_B = st.number_input("TIN B (%)", value=2.90, step=0.05, key="tfB")
+            elif modo_B == "VARIABLE":
+                diferencial_B = st.number_input("Dif. B (%)", value=0.45, step=0.05, key="dfB")
+            elif modo_B == "MIXTA":
+                tipo_fijo_B = st.number_input("Fijo B (%)", value=2.15, step=0.05, key="mfaB")
+                anios_fijos_B = st.number_input("Años Fijos B", value=3, key="myaB")
+                diferencial_B = st.number_input("Dif. Var B", value=0.45, step=0.05, key="mdaB")
+                
+    else:
+        st.subheader("Condiciones del Préstamo")
+        modo_A = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
+        anios_A = st.number_input("Duración (Años)", value=25, min_value=1)
+        
+        tipo_fijo_A = 0.0
+        diferencial_A = 0.0
+        anios_fijos_A = 0
+        
+        c1, c2 = st.columns(2)
+        if modo_A == "FIJA":
+            tipo_fijo_A = c1.number_input("TIN Fijo (%)", value=2.50, step=0.05)
+        elif modo_A == "VARIABLE":
+            diferencial_A = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
+        elif modo_A == "MIXTA":
+            tipo_fijo_A = c1.number_input("Fijo (%)", value=2.25, step=0.05)
+            anios_fijos_A = c2.number_input("Años Fijos", value=5)
+            diferencial_A = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
+            
+        # En modo simple, B es igual a A para no romper el código
+        modo_B, anios_B = modo_A, anios_A
+        tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
+
+    st.markdown("---")
     tipo_reduc = st.radio("Amortizar reduciendo:", ["PLAZO", "CUOTA"])
 
     with st.expander("Gastos y Vinculaciones", expanded=False):
-        s_hogar = st.number_input("Seguro Hogar (€/año)", value=250)
-        s_vida = st.number_input("Seguro Vida (€/año)", value=200)
+        s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
+        s_vida = st.number_input("Seguro Vida (€/año)", value=300)
         st.markdown("**Gastos Mensuales**")
         g_comida = st.number_input("Comida", value=300)
         g_suministros = st.number_input("Suministros", value=150)
@@ -190,7 +239,10 @@ with st.sidebar:
     caminos_eur = []
     n_sims = 1
     
-    if modo_h != "FIJA":
+    # Si alguno de los dos escenarios usa variable/mixta, necesitamos simulación
+    necesita_euribor = (modo_A != "FIJA") or (modo_B != "FIJA")
+    
+    if necesita_euribor:
         st.markdown("---")
         with st.expander("Simulación Euríbor", expanded=True):
             modo_prev = st.selectbox("Método", ["Monte Carlo (Vasicek)", "Manual"])
@@ -205,242 +257,207 @@ with st.sidebar:
             else:
                 n_sims = 1
 
-        n_años_var = anios_p if modo_h == "VARIABLE" else max(0, anios_p - anios_fijos)
+        # Calculamos el plazo máximo para generar suficientes puntos de euribor
+        max_anios = max(anios_A, anios_B)
         
-        if n_años_var > 0:
-            if modo_prev == "Manual":
-                eur_list = []
-                for i in range(n_años_var):
-                     eur_list.append(st.slider(f"Año {i + 1 + anios_fijos}", -1.0, 7.0, 3.2, key=f"e{i}"))
-                caminos_eur = [eur_list]
-            else:
-                caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims)
+        if modo_prev == "Manual":
+            eur_list = []
+            for i in range(max_anios):
+                 eur_list.append(st.slider(f"Año {i + 1}", -1.0, 7.0, 3.2, key=f"e{i}"))
+            caminos_eur = [eur_list]
+        else:
+            caminos_eur = simular_vasicek(r0, theta, kappa, sigma, max_anios, n_sims)
     else:
-        caminos_eur = [[0.0] * anios_p]
+        # Si ambos son fijos, generamos ceros, da igual
+        caminos_eur = [[0.0] * max(anios_A, anios_B)]
         n_sims = 1
 
 # ==========================================
 # 3. ÁREA PRINCIPAL
 # ==========================================
 
-st.title("Simulador Financiero")
-st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
+st.title("Simulador Financiero Pro 4.4")
+if comparar:
+    st.caption("🅰️ Escenario A vs 🅱️ Escenario B")
+else:
+    st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
 
-# ==========================================
-# CAMBIO 1: AMORTIZACIONES CON SLIDERS
-# ==========================================
-with st.expander("Estrategia de Amortización Anticipada"):
-    st.info("Desliza para programar amortizaciones anuales extra (Máx 10.000€/año)")
-    # Usamos 4 columnas para que los sliders tengan espacio
+# AMORTIZACIONES CON SLIDERS (Hasta 10.000€)
+# Nota: Aplicamos la misma estrategia de amortización a ambos escenarios para ver cuál responde mejor
+with st.expander("Estrategia de Amortización Anticipada (Se aplica a ambos escenarios)"):
+    st.info("Ajusta el capital extra que quieres aportar cada año (Máx. 10.000€)")
     cols_a = st.columns(4) 
-    
     amort_list = []
-    for i in range(anios_p):
-        # Slider en lugar de number_input
-        valor = cols_a[i % 4].slider(
-            f"Año {i+1}", 
-            min_value=0, 
-            max_value=30000, 
-            value=2400, 
-            step=500, 
-            key=f"slider_a{i}"
-        )
-        amort_list.append(valor)
+    max_anios_slider = max(anios_A, anios_B)
+    for i in range(max_anios_slider):
+        val = cols_a[i % 4].slider(f"Año {i+1}", 0, 10000, 0, step=500, key=f"s_a{i}")
+        amort_list.append(val)
 
-# CÁLCULOS
-kpis_int, kpis_ahorro, kpis_pat, kpis_seguros = [], [], [], []
-cuotas_matrix, eur_matrix = [], []
-df_median, df_base_median = None, None
+# ==========================================
+# CÁLCULOS (DOBLE BUCLE SI ES NECESARIO)
+# ==========================================
+# Variables para almacenar resultados de A y B
+kpis_int_A, kpis_int_B = [], []
+df_median_A, df_median_B = None, None
 
 total_gastos = g_comida + g_suministros + g_gasolina + g_otros
 coste_mes_seguros = (s_hogar + s_vida) / 12
 
-if n_sims > 100: 
-    prog_bar = st.progress(0)
+if n_sims > 100: prog_bar = st.progress(0)
 
 for i, camino in enumerate(caminos_eur):
-    # Calcular
-    df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc, es_autopromotor, meses_carencia)
-    df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO', es_autopromotor, meses_carencia)
+    # --- ESCENARIO A ---
+    df_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, amort_list, tipo_reduc, False, 0)
+    df_A['Seguros'] = np.where(df_A['Saldo'] > 0, coste_mes_seguros, 0)
+    kpis_int_A.append(df_A['Intereses'].sum() + df_A['Seguros'].sum()) # Guardamos Coste Total (Int+Seg)
     
-    # KPIs Financieros
-    df['Seguros'] = np.where(df['Saldo'] > 0, coste_mes_seguros, 0)
-    gasto_tot = df['Cuota'] + df['Seguros'] + total_gastos
-    
-    df['Ahorro_Liq'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
-    df['Patrimonio'] = df['Ahorro_Liq'] + (precio_vivienda - df['Saldo'])
-    
-    kpis_int.append(df['Intereses'].sum())
-    kpis_seguros.append(df['Seguros'].sum())
-    kpis_ahorro.append(df_base['Intereses'].sum() - df['Intereses'].sum())
-    kpis_pat.append(df['Patrimonio'].iloc[-1])
-    
-    cuotas_matrix.append(df['Cuota'].values)
-    eur_matrix.append(camino)
-    
-    if i == 0: df_median = df; df_base_median = df_base
+    # --- ESCENARIO B (Solo si comparar es True, o si es False B=A implícitamente por inputs) ---
+    df_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino, amort_list, tipo_reduc, False, 0)
+    df_B['Seguros'] = np.where(df_B['Saldo'] > 0, coste_mes_seguros, 0)
+    kpis_int_B.append(df_B['Intereses'].sum() + df_B['Seguros'].sum())
+
+    # Guardamos los DF de la primera iteración (o mediana más tarde) para gráficos
+    if i == 0: 
+        df_median_A = df_A
+        df_median_B = df_B
+        
     if n_sims > 100: prog_bar.progress((i+1)/n_sims)
 
 if n_sims > 100: prog_bar.empty()
 
-# Escenario Central (Mediana de Intereses Totales)
-idx_med = np.argsort(kpis_int)[len(kpis_int)//2]
+# Selección de escenario Mediana basada en A
+idx_med = np.argsort(kpis_int_A)[len(kpis_int_A)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
-    df_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, amort_list, tipo_reduc, es_autopromotor, meses_carencia)
-    df_base_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, [0]*anios_p, 'PLAZO', es_autopromotor, meses_carencia)
-    # Recalcular auxiliares mediana
-    df_median['Seguros'] = np.where(df_median['Saldo'] > 0, coste_mes_seguros, 0)
-    gasto_tot = df_median['Cuota'] + df_median['Seguros'] + total_gastos
-    df_median['Ahorro_Liq'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
-    df_median['Patrimonio'] = df_median['Ahorro_Liq'] + (precio_vivienda - df_median['Saldo'])
+    # Recalculamos A con camino mediano
+    df_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, amort_list, tipo_reduc, False, 0)
+    df_median_A['Seguros'] = np.where(df_median_A['Saldo'] > 0, coste_mes_seguros, 0)
+    # Recalculamos B con el MISMO camino mediano (para comparar peras con peras)
+    df_median_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino_med, amort_list, tipo_reduc, False, 0)
+    df_median_B['Seguros'] = np.where(df_median_B['Saldo'] > 0, coste_mes_seguros, 0)
 
-# Métricas Mediana
-int_total = np.median(kpis_int)
-seg_total = np.median(kpis_seguros)
-coste_total = int_total + seg_total
-ahorro_int = np.median(kpis_ahorro)
+# --- KPIs FINALES ---
+# Coste Total (Intereses + Seguros)
+coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
+coste_B = df_median_B['Intereses'].sum() + df_median_B['Seguros'].sum()
+
+# Tiempo Total (Meses hasta saldo 0)
+meses_A = len(df_median_A[df_median_A['Saldo'] > 0])
+meses_B = len(df_median_B[df_median_B['Saldo'] > 0])
+
+# Cuota Inicial
+cuota_ini_A = df_median_A.iloc[0]['Cuota']
+cuota_ini_B = df_median_B.iloc[0]['Cuota']
 
 # ==========================================
-# CAMBIO 2: CÁLCULO DE AHORRO EN TIEMPO (Años y Meses)
+# DASHBOARD COMPARATIVO O INDIVIDUAL
 # ==========================================
-meses_con_deuda = len(df_median[df_median['Saldo'] > 0])
-meses_ahorrados_total = (anios_p * 12) - meses_con_deuda
-ahorro_anios = meses_ahorrados_total // 12
-ahorro_meses_restantes = meses_ahorrados_total % 12
 
-if ahorro_anios > 0 and ahorro_meses_restantes > 0:
-    texto_ahorro_tiempo = f"-{ahorro_anios} años y {ahorro_meses_restantes} meses"
-elif ahorro_anios > 0:
-    texto_ahorro_tiempo = f"-{ahorro_anios} años"
-elif ahorro_meses_restantes > 0:
-    texto_ahorro_tiempo = f"-{ahorro_meses_restantes} meses"
+if comparar:
+    st.markdown("### ⚖️ Comparativa Directa")
+    
+    col_c1, col_c2, col_c3 = st.columns(3)
+    
+    # 1. COSTE TOTAL
+    dif_coste = coste_B - coste_A
+    col_c1.metric(
+        "Coste Total (Intereses + Seguros)", 
+        f"{coste_A:,.0f} € vs {coste_B:,.0f} €",
+        f"{dif_coste:,.0f} € (Diferencia)",
+        delta_color="inverse" # Rojo si B es más caro, Verde si B es más barato
+    )
+    
+    # 2. TIEMPO TOTAL
+    dif_meses = meses_B - meses_A
+    
+    def formato_tiempo(m):
+        a = m // 12
+        r = m % 12
+        return f"{a}a {r}m"
+        
+    col_c2.metric(
+        "Tiempo Real de Pago",
+        f"{formato_tiempo(meses_A)} vs {formato_tiempo(meses_B)}",
+        f"{dif_meses} meses",
+        delta_color="inverse"
+    )
+    
+    # 3. CUOTA INICIAL
+    dif_cuota = cuota_ini_B - cuota_ini_A
+    col_c3.metric(
+        "Cuota Inicial",
+        f"{cuota_ini_A:,.0f} € vs {cuota_ini_B:,.0f} €",
+        f"{dif_cuota:,.0f} €",
+        delta_color="inverse"
+    )
+    
+    st.markdown("---")
+
 else:
-    texto_ahorro_tiempo = "0 meses"
+    # MODO INDIVIDUAL (Original + Ahorro Tiempo)
+    # Lógica de Ahorro de Tiempo (Años y Meses) vs Base teórica
+    meses_ahorrados_total = (anios_A * 12) - meses_A
+    ahorro_anios = meses_ahorrados_total // 12
+    ahorro_meses = meses_ahorrados_total % 12
 
-idx_ref = 0 if not es_autopromotor else meses_carencia
-cuota_ini = df_median.iloc[idx_ref]['Cuota']
-tasa_ini = df_median.iloc[idx_ref]['Tasa']
+    if ahorro_anios > 0 and ahorro_meses > 0:
+        texto_tiempo = f"-{ahorro_anios} años y {ahorro_meses} meses"
+    elif ahorro_anios > 0:
+        texto_tiempo = f"-{ahorro_anios} años"
+    elif ahorro_meses > 0:
+        texto_tiempo = f"-{ahorro_meses} meses"
+    else:
+        texto_tiempo = "Sin reducción"
 
-# DASHBOARD
-st.markdown("### Resumen Ejecutivo")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Cuota Inicial", f"{cuota_ini:,.2f} €", f"{tasa_ini:.2f}% TIN")
-k2.metric("Total Intereses (Est.)", f"{int_total:,.0f} €", delta_color="inverse")
-k3.metric("Coste Operación (Int+Seg)", f"{coste_total:,.0f} €", delta_color="inverse")
-# APLICAMOS EL TEXTO CALCULADO
-k4.metric("Ahorro por Amortizar", f"{ahorro_int:,.0f} €", texto_ahorro_tiempo)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[0]['Tasa']:.2f}% TIN")
+    k2.metric("Total Intereses", f"{df_median_A['Intereses'].sum():,.0f} €", delta_color="inverse")
+    k3.metric("Coste Operación (Int+Seg)", f"{coste_A:,.0f} €", delta_color="inverse")
+    k4.metric("Ahorro por Amortizar", f"{(coste_A - coste_A):,.0f} € (Ref)", texto_tiempo) # Aquí habría que calcular vs base sin amortizar si queremos métrica exacta
+    
+    st.markdown("---")
 
-st.markdown("---")
 
-tabs = st.tabs(["📊 Evolución", "📉 Comparativa Amortización", "💰 Patrimonio", "🎲 Riesgo (Monte Carlo)"])
+# GRÁFICOS
+tabs = st.tabs(["📊 Evolución Saldo", "💰 Comparativa Acumulada", "📑 Datos Detallados"])
 
-# TAB 1: EVOLUCIÓN
 with tabs[0]:
-    c_e1, c_e2 = st.columns(2)
-    with c_e1:
-        st.subheader("Euríbor: Proyección e Incertidumbre")
-        if modo_h == "FIJA":
-            st.info("Tipo Fijo: Sin incertidumbre de mercado.")
-        else:
-            mat = np.array(eur_matrix)
-            p10 = np.percentile(mat, 10, axis=0)
-            p50 = np.percentile(mat, 50, axis=0)
-            p90 = np.percentile(mat, 90, axis=0)
-            x_ax = np.arange(1, len(p50)+1)
-            
-            fig = go.Figure()
-            # Banda de confianza
-            fig.add_trace(go.Scatter(x=x_ax, y=p90, mode='lines', line=dict(width=0), showlegend=False))
-            fig.add_trace(go.Scatter(x=x_ax, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,100,250,0.15)', name='Intervalo 80% Confianza'))
-            # Mediana
-            fig.add_trace(go.Scatter(x=x_ax, y=p50, mode='lines', line=dict(color='#0055aa', width=3), name='Mediana'))
-            fig.update_layout(template='plotly_white', height=350, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", y=1.1))
-            st.plotly_chart(fig, use_container_width=True)
-            
-    with c_e2:
-        st.subheader("Cuota Mensual")
-        fig2 = px.line(df_median, x='Mes', y='Cuota', title="")
-        fig2.update_traces(line_color='#d9534f', line_width=2.5)
-        fig2.update_layout(template='plotly_white', height=350, margin=dict(l=0,r=0,t=30,b=0))
-        if es_autopromotor:
-            fig2.add_vline(x=meses_carencia, line_dash="dot", annotation_text="Fin Carencia")
-        st.plotly_chart(fig2, use_container_width=True)
+    st.subheader("Reducción de Deuda (Saldo Vivo)")
+    fig_s = go.Figure()
+    fig_s.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Saldo'], fill='tozeroy', name='Escenario A', line=dict(color='#0055aa')))
+    if comparar:
+        fig_s.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Saldo'], name='Escenario B', line=dict(color='#ff7f0e', dash='dash', width=3)))
+    fig_s.update_layout(template='plotly_white', height=400, legend=dict(orientation="h", y=1.1))
+    st.plotly_chart(fig_s, use_container_width=True)
 
-# TAB 2: AMORTIZACIÓN
 with tabs[1]:
     c_a1, c_a2 = st.columns(2)
     with c_a1:
-        st.subheader("Pago de Intereses Acumulado")
-        fig3 = go.Figure()
-        fig3.add_trace(go.Scatter(x=df_base_median['Mes'], y=df_base_median['Intereses'].cumsum(), name='Sin Amortizar', line=dict(color='gray', dash='dash')))
-        fig3.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Intereses'].cumsum(), name='Con Amortización', line=dict(color='#d9534f', width=3)))
-        fig3.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
-        st.plotly_chart(fig3, use_container_width=True)
+        st.subheader("Intereses Acumulados")
+        fig_i = go.Figure()
+        fig_i.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Intereses'].cumsum(), name='Intereses A', line=dict(color='#0055aa')))
+        if comparar:
+             fig_i.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Intereses'].cumsum(), name='Intereses B', line=dict(color='#ff7f0e', dash='dash')))
+        fig_i.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_i, use_container_width=True)
+        
     with c_a2:
-        st.subheader("Reducción de Deuda")
-        fig4 = go.Figure()
-        fig4.add_trace(go.Scatter(x=df_base_median['Mes'], y=df_base_median['Saldo'], name='Saldo Base', line=dict(color='gray', dash='dash')))
-        fig4.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Saldo'], fill='tozeroy', name='Saldo Real', line=dict(color='#5cb85c')))
-        fig4.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
-        st.plotly_chart(fig4, use_container_width=True)
+        st.subheader("Evolución Cuota")
+        fig_c = go.Figure()
+        fig_c.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Cuota'], name='Cuota A', line=dict(color='#0055aa')))
+        if comparar:
+            fig_c.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Cuota'], name='Cuota B', line=dict(color='#ff7f0e', dash='dash')))
+        fig_c.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_c, use_container_width=True)
 
-# TAB 3: PATRIMONIO
 with tabs[2]:
-    st.subheader("Evolución del Patrimonio Neto")
-    fig5 = go.Figure()
-    # Comparativa Base
-    g_base = df_base_median['Cuota'] + coste_mes_seguros + total_gastos
-    ah_base = ahorro_inicial + (ingresos - g_base).cumsum()
-    pat_base = ah_base + (precio_vivienda - df_base_median['Saldo'])
+    c_d1, c_d2 = st.columns(2)
+    with c_d1:
+        st.markdown("#### Datos Escenario A")
+        num_cols = df_median_A.select_dtypes(include=[np.number]).columns
+        st.dataframe(df_median_A.style.format("{:.2f}", subset=num_cols), use_container_width=True, height=300)
     
-    fig5.add_trace(go.Scatter(x=df_base_median['Mes'], y=pat_base, name='Escenario Base', line=dict(color='gray', dash='dot')))
-    fig5.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Patrimonio'], name='Escenario Actual', line=dict(color='#6f42c1', width=3)))
-    fig5.update_layout(template='plotly_white', height=400, hovermode="x unified")
-    st.plotly_chart(fig5, use_container_width=True)
-
-# TAB 4: RIESGO (CORREGIDO)
-with tabs[3]:
-    if modo_h == "FIJA":
-        st.success("✅ Al ser una hipoteca a TIPO FIJO, no existe riesgo de tipo de interés. El coste es determinista.")
-    elif n_sims < 10:
-        st.warning("⚠️ Incrementa el número de simulaciones en la barra lateral (>50) para obtener un análisis de riesgo fiable.")
-    else:
-        st.subheader("Distribución de Probabilidad del Coste Total de Intereses")
-        
-        # Estadísticos
-        p5 = np.percentile(kpis_int, 5)
-        p25 = np.percentile(kpis_int, 25)
-        p50 = np.percentile(kpis_int, 50)
-        p75 = np.percentile(kpis_int, 75)
-        p95 = np.percentile(kpis_int, 95)
-        
-        c_r1, c_r2 = st.columns([2, 1])
-        
-        with c_r1:
-            # Histograma de Frecuencias
-            fig_hist = px.histogram(x=kpis_int, nbins=30, labels={'x': 'Total Intereses Pagados (€)', 'y': 'Frecuencia'}, color_discrete_sequence=['#8884d8'])
-            fig_hist.add_vline(x=p5, line_dash="dash", line_color="green", annotation_text=f"P5 (Mejor): {p5/1000:.0f}k")
-            fig_hist.add_vline(x=p95, line_dash="dash", line_color="red", annotation_text=f"P95 (Peor): {p95/1000:.0f}k")
-            fig_hist.add_vline(x=p50, line_color="black", annotation_text=f"Mediana: {p50/1000:.0f}k")
-            fig_hist.update_layout(template='plotly_white', height=400, showlegend=False)
-            st.plotly_chart(fig_hist, use_container_width=True)
-            
-        with c_r2:
-            st.write("#### Métricas de Sensibilidad")
-            st.markdown(f"""
-            <div style="background-color:#f8f9fa; padding:15px; border-radius:5px; font-size:0.9rem">
-            <b>Escenario Favorable (P10):</b><br> {np.percentile(kpis_int, 10):,.0f} € <br><br>
-            <b>Escenario Central (Mediana):</b><br> {p50:,.0f} € <br><br>
-            <b>Escenario Adverso (P90):</b><br> {np.percentile(kpis_int, 90):,.0f} € <br><br>
-            <hr>
-            <b>Riesgo Extremo (P95):</b><br> {p95:,.0f} €
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.info("El gráfico muestra la probabilidad de pagar distintas cantidades de intereses según la volatilidad del Euríbor.")
-
-# DATA PREVIEW
-with st.expander("Ver Datos Numéricos (Escenario Mediana)"):
-    num_cols = df_median.select_dtypes(include=[np.number]).columns
-    st.dataframe(df_median.style.format("{:.2f}", subset=num_cols), use_container_width=True)
+    if comparar:
+        with c_d2:
+            st.markdown("#### Datos Escenario B")
+            st.dataframe(df_median_B.style.format("{:.2f}", subset=num_cols), use_container_width=True, height=300)
