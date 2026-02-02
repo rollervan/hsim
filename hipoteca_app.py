@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 3.5", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 3.6", page_icon="🏦", layout="wide")
 
 # ==========================================
 # 1. MOTOR MATEMÁTICO (CORE)
@@ -106,7 +106,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ DINÁMICA (SIDEBAR)
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 3.5")
+st.title("🏦 Simulador Hipotecario Pro 3.6")
 st.markdown("---")
 
 with st.sidebar:
@@ -134,11 +134,9 @@ with st.sidebar:
     
     if modo_h == "FIJA":
         tipo_fijo = st.number_input("Tipo Fijo (%)", value=2.50, step=0.05)
-        # Euribor y Diferencial no aplican
         
     elif modo_h == "VARIABLE":
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
-        # Tipo Fijo no aplica
         
     elif modo_h == "MIXTA":
         col_m1, col_m2 = st.columns(2)
@@ -149,22 +147,28 @@ with st.sidebar:
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
 
     st.markdown("---")
-    st.header("🛡️ Gastos")
+    st.header("🛡️ Gastos Mensuales")
+    
+    # --- MODIFICACIÓN SOLICITADA ---
     s_hogar = st.number_input("Seguro Hogar/año (€)", value=300)
     s_vida = st.number_input("Seguro Vida/año (€)", value=400)
-    gastos_fijos = st.number_input("Comunidad/mes (€)", value=100)
+    
+    st.caption("Gastos de Vida:")
+    g_comida = st.number_input("Comida (€)", value=400, step=50)
+    g_suministros = st.number_input("Luz, agua, internet (€)", value=150, step=10)
+    g_gasolina = st.number_input("Gasolina (€)", value=100, step=10)
+    g_otros = st.number_input("Otros gastos (€)", value=200, step=10)
+    # -------------------------------
 
 
 # ==========================================
-# 3. CONFIGURACIÓN EURÍBOR (SOLO SI APLICA)
+# 3. CONFIGURACIÓN EURÍBOR
 # ==========================================
 caminos_eur = []
 modo_prev = "N/A"
 n_sims = 1
 
-# Solo mostramos configuración de Euribor si NO es Fija
 if modo_h != "FIJA":
-    # Sidebar extra para Euribor solo si es necesario
     with st.sidebar:
         st.markdown("---")
         st.header("📈 Config. Euríbor")
@@ -179,7 +183,6 @@ if modo_h != "FIJA":
         else:
             n_sims = 1
 
-    # Generación de Caminos en Main Page
     n_años_var = anios_p if modo_h == "VARIABLE" else max(0, anios_p - anios_fijos)
     
     if n_años_var > 0:
@@ -188,11 +191,8 @@ if modo_h != "FIJA":
                 eur_list = [st.slider(f"A{i+1}", -1.0, 7.0, 2.25, key=f"e{i}") for i in range(n_años_var)]
             caminos_eur = [eur_list]
         else:
-            # Info Vasicek
             caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims)
 else:
-    # Si es FIJA, creamos un camino dummy de ceros para que no falle el código, 
-    # aunque la función core lo ignorará.
     caminos_eur = [[0.0] * anios_p]
     n_sims = 1
 
@@ -211,6 +211,9 @@ df_median, df_base_median = None, None
 
 if n_sims > 50: bar = st.progress(0)
 
+# Cálculo de la suma de gastos fijos mensuales
+total_gastos_vida_mensual = g_comida + g_suministros + g_gasolina + g_otros
+
 for i, camino in enumerate(caminos_eur):
     # Escenario Actual
     df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc)
@@ -218,7 +221,9 @@ for i, camino in enumerate(caminos_eur):
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
     
     # Cálculos Patrimoniales
-    gasto_tot = df['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
+    # Sumamos los seguros (anual/12) + los nuevos gastos desglosados
+    gasto_tot = df['Cuota'] + (s_hogar + s_vida)/12 + total_gastos_vida_mensual
+    
     df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
     df['Equity'] = precio_vivienda - df['Saldo']
     df['Patrimonio'] = df['Ahorro_Liquido'] + df['Equity']
@@ -227,7 +232,7 @@ for i, camino in enumerate(caminos_eur):
     kpis_ahorro.append(df_base['Intereses'].sum() - df['Intereses'].sum())
     kpis_pat.append(df['Patrimonio'].iloc[-1])
     cuotas_matrix.append(df['Cuota'].values)
-    eur_matrix.append(camino) # Guardamos camino Euribor para graficar
+    eur_matrix.append(camino)
     
     if i == 0: 
         df_median = df
@@ -242,8 +247,8 @@ if n_sims > 1:
     df_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, amort_list, tipo_reduc)
     df_base_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, [0]*anios_p, 'PLAZO')
     
-    # Recalcular patrimonial mediana
-    gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
+    # Recalcular patrimonial mediana con los nuevos gastos
+    gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + total_gastos_vida_mensual
     df_median['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
     df_median['Equity'] = precio_vivienda - df_median['Saldo']
     df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + df_median['Equity']
@@ -257,7 +262,7 @@ c2.metric("Ahorro Intereses", f"{np.median(kpis_ahorro):,.0f} €", delta="Gener
 c3.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €")
 c4.metric("Tiempo Ahorrado", f"{(len(df_base_median)-len(df_median))//12} años")
 
-# --- PANEL DE RIESGO (Solo si hay incertidumbre) ---
+# --- PANEL DE RIESGO ---
 if n_sims > 1 and modo_h != "FIJA":
     p5_int = np.percentile(kpis_int, 5)
     p95_int = np.percentile(kpis_int, 95)
@@ -265,16 +270,14 @@ if n_sims > 1 and modo_h != "FIJA":
 elif modo_h == "FIJA":
     st.success("🔒 **Riesgo Cero:** Al ser tipo FIJO, sabes exactamente lo que vas a pagar desde el día 1.")
 
-
 st.markdown("---")
-# Pestañas condicionales (Ocultamos Euríbor si es Fija)
 tabs = ["📉 Tipos & Cuotas", "🛡️ Estrategia Amortización", "💰 Patrimonio"]
 tab1, tab2, tab3 = st.tabs(tabs)
 
 with tab1:
     col_eur, col_cuota = st.columns(2)
     
-    # 1. GRÁFICO EURIBOR (Solo si no es FIJA)
+    # 1. GRÁFICO EURIBOR
     with col_eur:
         if modo_h == "FIJA":
             st.info("Hipoteca a Tipo Fijo: Sin exposición al Euríbor.")
