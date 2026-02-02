@@ -241,7 +241,7 @@ with st.expander("Estrategia de Amortización Anticipada"):
             f"Año {i+1}", 
             min_value=0, 
             max_value=10000, 
-            value=0, 
+            value=2400, 
             step=500, 
             key=f"slider_a{i}"
         )
