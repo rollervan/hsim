@@ -8,7 +8,7 @@ import plotly.express as px
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ==========================================
 st.set_page_config(
-    page_title="Simulador Financiero Pro",
+    page_title="Simulador Financiero",
     page_icon="stats",
     layout="wide"
 )
@@ -150,7 +150,7 @@ with st.sidebar:
     st.subheader("Préstamo")
     modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
     
-    es_autopromotor = st.checkbox("Es Autopromoción", value=False)
+    es_autopromotor = st.checkbox("Es Autopromoción", value=True)
     meses_carencia = 0
     if es_autopromotor:
         meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
