@@ -6,25 +6,24 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 4.2 (Autopromotor)", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 4.3 (Stable)", page_icon="🏗️", layout="wide")
 
 # ==========================================
-# 1. MOTOR MATEMÁTICO (CORE CON AUTOPROMOCIÓN)
+# 1. MOTOR MATEMÁTICO (CORE)
 # ==========================================
 def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc, es_autopromotor, meses_carencia):
     n_meses_total = int(anios * 12)
     
     # Si es autopromotor, empezamos con saldo 0 (o la primera disposición)
-    # Si NO es autopromotor, empezamos con el capital total
     if es_autopromotor:
         saldo_real = 0.0
         disposicion_mensual = capital / max(1, meses_carencia) # Evitar div/0
     else:
         saldo_real = round(float(capital), 2)
         disposicion_mensual = 0
-        meses_carencia = 0 # Forzamos 0 si no es autopromotor
+        meses_carencia = 0 
         
-    saldo_teorico = round(float(capital), 2) # Para cálculo francés teórico
+    saldo_teorico = round(float(capital), 2) 
     
     data = []
     mes_global = 1
@@ -63,30 +62,25 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
             if en_periodo_carencia:
                 # 1. Recibir disposición del mes
                 saldo_real += disposicion_mensual
-                if saldo_real > capital: saldo_real = capital # Cap por redondeo
+                if saldo_real > capital: saldo_real = capital
                 
                 # 2. Solo se pagan intereses sobre lo dispuesto
                 cuota = saldo_real * tasa_mensual
                 interes_m = cuota
-                capital_m = 0 # No se amortiza nada
-                
-                # Nota: El saldo teórico para el futuro cálculo de cuota se mantiene intacto (capital total)
+                capital_m = 0 
                 
             else:
-                # --- LÓGICA NORMAL (AMORTIZACIÓN FRANCESA) ---
-                
+                # --- LÓGICA NORMAL ---
                 # Al terminar la carencia, aseguramos que el saldo es el capital total
                 if es_autopromotor and mes_global == meses_carencia + 1:
                      saldo_real = round(float(capital), 2)
                 
-                # Si ya no hay deuda
                 if saldo_real <= 0.01:
                     saldo_real = 0
                     cuota = 0
                     interes_m = 0
                     capital_m = 0
                 else:
-                    # Recálculo de cuota
                     base_calc = saldo_teorico if tipo_reduc == 'PLAZO' else saldo_real
                     if base_calc < saldo_real: base_calc = saldo_real
                     
@@ -122,7 +116,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 'Fase': 'Carencia' if en_periodo_carencia else 'Amortización'
             })
             
-            # 3. AMORTIZACIÓN EXTRA (No permitida en fase carencia autopromotor para simplificar)
+            # 3. AMORTIZACIÓN EXTRA (No permitida en fase carencia)
             if not en_periodo_carencia:
                 if m == 11 and saldo_real > 0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
@@ -148,9 +142,9 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
     return np.array(sims)
 
 # ==========================================
-# 2. INTERFAZ DINÁMICA (SIDEBAR)
+# 2. INTERFAZ DINÁMICA
 # ==========================================
-st.title("🏗️ Simulador Hipotecario Pro 4.2")
+st.title("🏗️ Simulador Hipotecario Pro 4.3")
 st.markdown("---")
 
 with st.sidebar:
@@ -165,13 +159,13 @@ with st.sidebar:
     # DATOS COMUNES
     modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
     
-    # --- NUEVA OPCIÓN AUTOPROMOTOR ---
+    # --- OPCIÓN AUTOPROMOTOR ---
     es_autopromotor = st.checkbox("🏗️ Es Autopromoción (Obra Nueva)", value=False)
     meses_carencia = 0
     if es_autopromotor:
         meses_carencia = st.number_input("Meses Carencia (Construcción)", value=11, min_value=1, max_value=36)
         st.info(f"Durante los primeros {meses_carencia} meses pagarás solo intereses sobre el dinero dispuesto.")
-    # ---------------------------------
+    # ---------------------------
     
     capital_init = st.number_input("Capital Pendiente / A Solicitar (€)", value=180000, step=1000)
     anios_p = st.number_input("Años Totales (Incluye carencia)", value=25, min_value=1)
@@ -180,17 +174,14 @@ with st.sidebar:
     st.markdown("---")
     st.header("🏦 Condiciones Banco")
     
-    # VARIABLES DINÁMICAS
     tipo_fijo = 0.0
     diferencial = 0.0
     anios_fijos = 0
     
     if modo_h == "FIJA":
         tipo_fijo = st.number_input("Tipo Fijo (%)", value=2.50, step=0.05)
-        
     elif modo_h == "VARIABLE":
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
-        
     elif modo_h == "MIXTA":
         col_m1, col_m2 = st.columns(2)
         with col_m1:
@@ -200,7 +191,6 @@ with st.sidebar:
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
 
     st.markdown("---")
-    # --- SECCIÓN VINCULACIONES ---
     st.header("🖇️ Vinculaciones (Seguros)")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -266,14 +256,13 @@ df_median, df_base_median = None, None
 
 if n_sims > 50: bar = st.progress(0)
 
-# GASTOS MENSUALES FIJOS
 total_gastos_vida_mensual = g_comida + g_suministros + g_gasolina + g_otros
 coste_mensual_seguros = (s_hogar + s_vida) / 12
 
 for i, camino in enumerate(caminos_eur):
     # Escenario Actual
     df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc, es_autopromotor, meses_carencia)
-    # Escenario Base (Sin amortizaciones)
+    # Escenario Base
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO', es_autopromotor, meses_carencia)
     
     # --- CÁLCULOS PATRIMONIALES ---
@@ -281,8 +270,6 @@ for i, camino in enumerate(caminos_eur):
     gasto_tot = df['Cuota'] + df['Seguros_Pagados'] + total_gastos_vida_mensual
     
     df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
-    # Equity en Autopromoción: Asumimos que la casa vale lo que pones, aunque la deuda empiece en 0
-    # Pero lo correcto: Equity = Valor Casa - Deuda Pendiente
     df['Equity'] = precio_vivienda - df['Saldo']
     df['Patrimonio'] = df['Ahorro_Liquido'] + df['Equity']
     
@@ -327,14 +314,14 @@ meses_ahorrados = (anios_p * 12) - meses_con_hipoteca
 st.subheader("📊 Análisis de Costes")
 c1, c2, c3 = st.columns(3)
 c1.metric("Intereses Banco", f"{intereses_totales:,.0f} €")
-c2.metric("Gasto en Seguros", f"{seguros_totales:,.0f} €", help="Solo se pagan mientras la hipoteca esté viva")
+c2.metric("Gasto en Seguros", f"{seguros_totales:,.0f} €")
 c3.metric("COSTE REAL TOTAL", f"{coste_total_operacion:,.0f} €", delta="Intereses + Seguros", delta_color="off")
 
 st.markdown("---")
 st.subheader("🚀 Beneficio por Amortizar")
 c4, c5, c6 = st.columns(3)
 c4.metric("Ahorro Intereses", f"{ahorro_intereses:,.0f} €", delta="Generado por amortizar", delta_color="normal")
-c5.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} a, {meses_ahorrados % 12} m", help="Tiempo que vivirás sin pagar cuota")
+c5.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} a, {meses_ahorrados % 12} m")
 c6.metric("Patrimonio Final (Año 25)", f"{np.median(kpis_pat):,.0f} €", help="Incluye todo el ahorro acumulado", delta="Valor Real Comparable")
 
 # --- PANEL DE RIESGO ---
@@ -351,7 +338,6 @@ if n_sims > 1 and modo_h != "FIJA":
         st.info(f"📊 **Horquilla 90% Probabilidad:**\nPagarás entre **{p5_int:,.0f} €** y **{p95_int:,.0f} €** de intereses.")
     with cr2:
         st.warning(f"🎯 **Horquilla 80% Probabilidad:**\nPagarás entre **{p10_int:,.0f} €** y **{p90_int:,.0f} €** de intereses.")
-
 elif modo_h == "FIJA":
     st.success("🔒 **Riesgo Cero:** Al ser tipo FIJO, sabes exactamente lo que vas a pagar desde el día 1.")
 
@@ -379,7 +365,6 @@ with tab1:
         fig_q = go.Figure()
         fig_q.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Cuota'], line=dict(color='#c0392b', width=2), name='Cuota Pagada'))
         if es_autopromotor:
-            # Añadir línea vertical donde acaba la carencia
             fig_q.add_vline(x=meses_carencia, line_dash="dash", line_color="green", annotation_text="Fin Carencia")
         fig_q.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0))
         st.plotly_chart(fig_q, use_container_width=True)
@@ -408,7 +393,6 @@ with tab3:
     
     fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Patrimonio'], name='Patrimonio (Amortizando)', line=dict(color='#8e44ad', width=4)))
     
-    # Patrimonio base 
     gasto_base = df_base_median['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     ahorro_base = ahorro_inicial + (ingresos - gasto_base).cumsum()
     pat_base = ahorro_base + (precio_vivienda - df_base_median['Saldo'])
@@ -420,4 +404,6 @@ with tab3:
 
 st.markdown("---")
 with st.expander("📥 Datos Detallados (Escenario Mediana)"):
-    st.dataframe(df_median.style.format("{:.2f}"))
+    # Fix: Filtramos solo las columnas numéricas para el formateo para no romper con la columna de texto 'Fase'
+    numeric_cols = df_median.select_dtypes(include=[np.number]).columns
+    st.dataframe(df_median.style.format("{:.2f}", subset=numeric_cols))
