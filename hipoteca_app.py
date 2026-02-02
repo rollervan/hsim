@@ -78,7 +78,7 @@ def calcular_hipoteca(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
 # ==========================================
 # 2. INTERFAZ STREAMLIT
 # ==========================================
-st.title("🏦 Simulador Hipotecario Profesional")
+st.title("🏦 Simulador Hipotecario")
 st.markdown("---")
 
 # Barra Lateral - Configuración Principal
@@ -93,7 +93,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📊 Condiciones Banco")
-    tipo_fijo = st.number_input("Tipo Fijo (%)", value=2.95, format="%.2f")
+    tipo_fijo = st.number_input("Tipo Fijo (%)", value=2.2, format="%.2f")
     anios_fijos = st.number_input("Años de tramo fijo", value=5) if modo == "MIXTA" else 0
     diferencial = st.number_input("Diferencial Variable (%)", value=0.55, format="%.2f")
 
