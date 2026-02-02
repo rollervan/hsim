@@ -240,7 +240,7 @@ with st.expander("Estrategia de Amortización Anticipada"):
         valor = cols_a[i % 4].slider(
             f"Año {i+1}", 
             min_value=0, 
-            max_value=10000, 
+            max_value=30000, 
             value=2400, 
             step=500, 
             key=f"slider_a{i}"
