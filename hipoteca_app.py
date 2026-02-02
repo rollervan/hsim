@@ -260,7 +260,8 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("Intereses Totales (Mediana)", f"{np.median(kpis_int):,.0f} €")
 c2.metric("Ahorro Intereses", f"{np.median(kpis_ahorro):,.0f} €", delta="Generado por amortizar", delta_color="normal")
 c3.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €")
-c4.metric("Tiempo Ahorrado", f"{(len(df_base_median)-len(df_median))//12} años")
+meses_ahorrados = len(df_base_median) - len(df_median)
+c4.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} años y {meses_ahorrados % 12} meses")
 
 # --- PANEL DE RIESGO ---
 if n_sims > 1 and modo_h != "FIJA":
