@@ -6,10 +6,10 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 3.1", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 3.3", page_icon="🏦", layout="wide")
 
 # ==========================================
-# 1. MOTOR MATEMÁTICO (CORE)
+# 1. MOTOR MATEMÁTICO (CORE AUDITADO)
 # ==========================================
 def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc):
     n_meses_total = anios * 12
@@ -18,6 +18,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     data = []
     mes_global = 1
     
+    # Relleno seguro de listas
     puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, anios - len(euribor_puntos)))
     puntos_amort = list(amortizaciones) + [0] * (max(0, anios - len(amortizaciones)))
 
@@ -102,7 +103,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ Y CONFIGURACIÓN
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 3.1")
+st.title("🏦 Simulador Hipotecario Pro 3.3")
 st.markdown("---")
 
 with st.sidebar:
@@ -127,7 +128,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("📈 Euríbor")
     modo_prev = st.radio("Método", ["Estocástico (Monte Carlo)", "Manual (Sliders)"])
-    n_sims = st.select_slider("Simulaciones", [10, 50, 100, 500], value=100) if modo_prev == "Estocástico (Monte Carlo)" else 1
+    n_sims = st.select_slider("Simulaciones", [10, 50, 100, 250, 500], value=100) if modo_prev == "Estocástico (Monte Carlo)" else 1
     
     if modo_prev == "Estocástico (Monte Carlo)":
         theta = st.slider("Media (θ)", 0.0, 5.0, 2.25)
@@ -182,73 +183,104 @@ for i, camino in enumerate(caminos_eur):
     
     if i == 0: 
         df_median = df
-        df_base_median = df_base # Guardamos la base para comparar gráficos
+        df_base_median = df_base 
 
     if n_sims > 50: bar.progress((i+1)/n_sims)
 
-# Seleccionar mediana real
+# Seleccionar mediana
 idx_med = np.argsort(kpis_int)[len(kpis_int)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
     df_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, amort_list, tipo_reduc)
     df_base_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, [0]*anios_p, 'PLAZO')
-    # Recalcular patrimonial para la mediana
+    # Recalcular patrimonial
     gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
     df_median['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
     df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + (precio_vivienda - df_median['Saldo'])
 
 # ==========================================
-# 4. DASHBOARD
+# 4. DASHBOARD (TODO INCLUIDO)
 # ==========================================
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Intereses Totales", f"{np.median(kpis_int):,.0f} €")
-c2.metric("Ahorro Intereses", f"{np.median(kpis_ahorro):,.0f} €", delta="Generado por amortizar")
+c1.metric("Intereses Totales (Mediana)", f"{np.median(kpis_int):,.0f} €")
+c2.metric("Ahorro Intereses", f"{np.median(kpis_ahorro):,.0f} €", delta="Generado por amortizar", delta_color="normal")
 c3.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €")
 c4.metric("Tiempo Ahorrado", f"{(len(df_base_median)-len(df_median))//12} años")
 
+# --- PANEL DE RIESGO ---
+if n_sims > 1:
+    p5_int = np.percentile(kpis_int, 5)
+    p95_int = np.percentile(kpis_int, 95)
+    st.info(f"📊 **Horquilla de Riesgo (90% Probabilidad):** Pagarás entre **{p5_int:,.0f} €** (Mejor caso) y **{p95_int:,.0f} €** (Peor caso) de intereses totales.")
+
 st.markdown("---")
-tab1, tab2 = st.tabs(["📊 Análisis Cuota & Intereses", "💰 Patrimonio"])
+# Tabs organizadas para no perder información
+tab1, tab2, tab3 = st.tabs(["📉 Tipos & Cuotas", "🛡️ Estrategia Amortización", "💰 Patrimonio"])
 
 with tab1:
-    g1, g2 = st.columns(2)
+    col_eur, col_cuota = st.columns(2)
     
-    with g1:
-        st.subheader("Cuota Mensual (Riesgo)")
-        # Fan Chart Logic
+    # 1. EVOLUCIÓN EURIBOR (RESTAURADO)
+    with col_eur:
+        st.subheader("Evolución Euríbor Previsto")
+        eur_matrix = np.array(caminos_eur)
+        p5_eur = np.percentile(eur_matrix, 5, axis=0)
+        p50_eur = np.percentile(eur_matrix, 50, axis=0)
+        p95_eur = np.percentile(eur_matrix, 95, axis=0)
+        anios_x = np.arange(1, len(p50_eur)+1)
+        
+        fig_e = go.Figure()
+        fig_e.add_trace(go.Scatter(x=np.concatenate([anios_x, anios_x[::-1]]), y=np.concatenate([p95_eur, p5_eur[::-1]]), fill='toself', fillcolor='rgba(41, 128, 185, 0.2)', line=dict(color='rgba(0,0,0,0)'), name='Incertidumbre (P5-P95)', hoverinfo="skip"))
+        fig_e.add_trace(go.Scatter(x=anios_x, y=p50_eur, line=dict(color='#2980b9', width=2), name='Euríbor Mediana'))
+        fig_e.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_e, use_container_width=True)
+
+    # 2. EVOLUCIÓN CUOTA (FAN CHART)
+    with col_cuota:
+        st.subheader("Evolución Cuota Mensual")
         max_len = max(len(c) for c in cuotas_matrix)
         mat_pad = np.array([np.pad(c, (0, max_len - len(c)), constant_values=np.nan) for c in cuotas_matrix])
         meses = np.arange(1, max_len + 1)
         
         fig_q = go.Figure()
-        fig_q.add_trace(go.Scatter(x=np.concatenate([meses, meses[::-1]]), y=np.concatenate([np.nanpercentile(mat_pad, 95, axis=0), np.nanpercentile(mat_pad, 5, axis=0)[::-1]]), fill='toself', fillcolor='rgba(231,76,60,0.2)', line=dict(color='rgba(0,0,0,0)'), name='Rango P5-P95'))
-        fig_q.add_trace(go.Scatter(x=meses, y=np.nanmedian(mat_pad, axis=0), line=dict(color='#c0392b', width=2), name='Mediana'))
+        fig_q.add_trace(go.Scatter(x=np.concatenate([meses, meses[::-1]]), y=np.concatenate([np.nanpercentile(mat_pad, 95, axis=0), np.nanpercentile(mat_pad, 5, axis=0)[::-1]]), fill='toself', fillcolor='rgba(231,76,60,0.2)', line=dict(color='rgba(0,0,0,0)'), name='Rango Cuota P5-P95'))
+        fig_q.add_trace(go.Scatter(x=meses, y=np.nanmedian(mat_pad, axis=0), line=dict(color='#c0392b', width=2), name='Cuota Mediana'))
         fig_q.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_q, use_container_width=True)
-        
-    with g2:
-        st.subheader("Interés Restante: Real vs Base")
-        # Cálculo de Interés Restante para ambos escenarios
-        int_pend_base = df_base_median['Intereses'].sum() - df_base_median['Intereses'].cumsum()
-        int_pend_real = df_median['Intereses'].sum() - df_median['Intereses'].cumsum()
-        
-        fig_r = go.Figure()
-        # Línea de Referencia (Lo que pagarías sin amortizar)
-        fig_r.add_trace(go.Scatter(x=df_base_median['Mes'], y=int_pend_base, name='Interés Hipoteca Original', line=dict(color='gray', dash='dash')))
-        # Línea Real (Lo que pagas tú)
-        fig_r.add_trace(go.Scatter(x=df_median['Mes'], y=int_pend_real, name='Interés Con Amortización', fill='tozeroy', line=dict(color='#e74c3c')))
-        
-        fig_r.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
-        st.plotly_chart(fig_r, use_container_width=True)
 
 with tab2:
+    g1, g2 = st.columns(2)
+    
+    # 3. INTERÉS PENDIENTE (COMPARATIVA)
+    with g1:
+        st.subheader("Interés Restante: Real vs Original")
+        int_pend_base = (df_base_median['Intereses'].sum() - df_base_median['Intereses'].cumsum()).round(2)
+        int_pend_real = (df_median['Intereses'].sum() - df_median['Intereses'].cumsum()).round(2)
+        
+        fig_r = go.Figure()
+        fig_r.add_trace(go.Scatter(x=df_base_median['Mes'], y=int_pend_base, name='Sin Amortizar (Base)', line=dict(color='gray', dash='dash')))
+        fig_r.add_trace(go.Scatter(x=df_median['Mes'], y=int_pend_real, name='Con Tu Plan (Real)', fill='tozeroy', line=dict(color='#e74c3c')))
+        fig_r.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_r, use_container_width=True)
+    
+    # 4. INTERES VS CAPITAL
+    with g2:
+        st.subheader("Carrera Capital vs Intereses")
+        fig_race = go.Figure()
+        fig_race.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Capital'].cumsum(), fill='tozeroy', name='Capital Amortizado', line=dict(color='#27ae60')))
+        fig_race.add_trace(go.Scatter(x=df_median['Mes'], y=int_pend_real, fill='tozeroy', name='Interés Pendiente', line=dict(color='#e67e22')))
+        fig_race.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_race, use_container_width=True)
+
+with tab3:
+    st.subheader("Evolución Patrimonio Neto")
     fig_nw = go.Figure()
-    fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Patrimonio'], name='Patrimonio Neto', line=dict(color='#8e44ad', width=3)))
+    fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Patrimonio'], name='Patrimonio Total', line=dict(color='#8e44ad', width=4)))
+    fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Equity'], name='Valor Propiedad (Pagado)', stackgroup='one', line=dict(color='#2980b9')))
     fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Ahorro_Liquido'], name='Ahorro Líquido', stackgroup='one', line=dict(color='#2ecc71')))
-    fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=precio_vivienda - df_median['Saldo'], name='Valor Casa (Pagado)', stackgroup='one', line=dict(color='#3498db')))
-    fig_nw.update_layout(height=400, hovermode="x unified")
+    fig_nw.update_layout(height=400, hovermode="x unified", margin=dict(t=30,b=0,l=0,r=0))
     st.plotly_chart(fig_nw, use_container_width=True)
 
-# Exportar
 st.markdown("---")
-with st.expander("📥 Datos Detallados"):
+with st.expander("📥 Datos Detallados (Escenario Mediana)"):
     st.dataframe(df_median.style.format("{:.2f}"))
