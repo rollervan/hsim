@@ -226,10 +226,22 @@ with st.sidebar:
 st.title("Simulador Financiero Pro 4.3")
 st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
 
-# Amortizaciones (Compacto)
+# Amortizaciones con Sliders (Máximo 10.000€)
 with st.expander("Estrategia de Amortización Anticipada"):
-    cols_a = st.columns(6) 
-    amort_list = [cols_a[i%6].number_input(f"A{i+1}", 0, 50000, 0, step=500, key=f"a{i}") for i in range(anios_p)]
+    st.info("Desliza para programar amortizaciones anuales extra (Máx 10.000€/año)")
+    cols_a = st.columns(4) # Reducido a 4 columnas para que el slider respire mejor
+    
+    amort_list = []
+    for i in range(anios_p):
+        valor = cols_a[i % 4].slider(
+            f"Año {i+1}", 
+            min_value=0, 
+            max_value=10000, 
+            value=0, 
+            step=500, 
+            key=f"slider_a{i}"
+        )
+        amort_list.append(valor)
 
 # CÁLCULOS
 kpis_int, kpis_ahorro, kpis_pat, kpis_seguros = [], [], [], []
