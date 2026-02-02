@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 3.7", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 3.8", page_icon="🏦", layout="wide")
 
 # ==========================================
 # 1. MOTOR MATEMÁTICO (CORE)
@@ -106,7 +106,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ DINÁMICA (SIDEBAR)
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 3.7")
+st.title("🏦 Simulador Hipotecario Pro 3.8")
 st.markdown("---")
 
 with st.sidebar:
@@ -227,7 +227,6 @@ for i, camino in enumerate(caminos_eur):
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
     
     # --- CÁLCULOS PATRIMONIALES ---
-    # Gasto Total = Cuota Hipoteca + Seguros + Gastos Vida
     gasto_tot = df['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     
     df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
@@ -260,18 +259,27 @@ if n_sims > 1:
     df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + df_median['Equity']
 
 # ==========================================
-# 5. DASHBOARD
+# 5. DASHBOARD (REDISEÑADO)
 # ==========================================
 # Cálculos de Totales para KPIs
 intereses_totales = np.median(kpis_int)
-seguros_totales = coste_mensual_seguros * len(df_median) # Coste durante la vida del préstamo
+seguros_totales = coste_mensual_seguros * len(df_median)
 coste_total_operacion = intereses_totales + seguros_totales
+ahorro_intereses = np.median(kpis_ahorro)
+meses_ahorrados = len(df_base_median) - len(df_median)
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Intereses Banco", f"{intereses_totales:,.0f} €", help="Solo lo que pagas de intereses al banco")
-c2.metric("Gasto en Seguros", f"{seguros_totales:,.0f} €", help="Coste acumulado de Vida + Hogar durante la hipoteca", delta="- Gasto", delta_color="inverse")
-c3.metric("COSTE REAL TOTAL", f"{coste_total_operacion:,.0f} €", help="Intereses + Seguros (Lo que realmente pagas por el dinero)", delta_color="off")
-c4.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €", help="Valor Casa + Ahorros al final")
+st.subheader("📊 Análisis de Costes")
+c1, c2, c3 = st.columns(3)
+c1.metric("Intereses Banco", f"{intereses_totales:,.0f} €")
+c2.metric("Gasto en Seguros", f"{seguros_totales:,.0f} €", help="Coste de Vida + Hogar durante la hipoteca real")
+c3.metric("COSTE REAL TOTAL", f"{coste_total_operacion:,.0f} €", delta="Intereses + Seguros", delta_color="off")
+
+st.markdown("---")
+st.subheader("🚀 Beneficio por Amortizar")
+c4, c5, c6 = st.columns(3)
+c4.metric("Ahorro Intereses", f"{ahorro_intereses:,.0f} €", delta="Generado por amortizar", delta_color="normal")
+c5.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} a, {meses_ahorrados % 12} m")
+c6.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €", help="Valor Casa + Ahorros al final")
 
 # --- PANEL DE RIESGO ---
 if n_sims > 1 and modo_h != "FIJA":
