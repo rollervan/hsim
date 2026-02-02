@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 4.0", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 4.1", page_icon="🏦", layout="wide")
 
 # ==========================================
 # 1. MOTOR MATEMÁTICO (CORE CORREGIDO)
@@ -24,10 +24,10 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
 
     idx_var = 0 
     
-    # --- CORRECCIÓN CLAVE: El bucle recorre SIEMPRE todos los años originales ---
+    # Bucle que recorre SIEMPRE todos los años (para acumular ahorro si terminas antes)
     for anio in range(anios):
         
-        # 1. DETERMINAR TASA (Solo si hay deuda, si no, es irrelevante pero calculamos para registro)
+        # 1. DETERMINAR TASA
         if modo == 'FIJA':
             tasa_anual = tipo_fijo
         elif modo == 'VARIABLE':
@@ -53,15 +53,15 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 interes_m = 0
                 capital_m = 0
             else:
-                # Recálculo de cuota según sistema francés
+                # Recálculo de cuota
                 base_calc = saldo_teorico if tipo_reduc == 'PLAZO' else saldo_real
-                if base_calc < saldo_real: base_calc = saldo_real # Protección
+                if base_calc < saldo_real: base_calc = saldo_real
                 
                 if tasa_mensual > 0:
                     try:
                         cuota = base_calc * (tasa_mensual * (1 + tasa_mensual)**meses_restantes) / ((1 + tasa_mensual)**meses_restantes - 1)
                     except:
-                        cuota = base_calc / meses_restantes # Fallback si error matemático
+                        cuota = base_calc / meses_restantes
                 else:
                     cuota = base_calc / meses_restantes
                 
@@ -70,14 +70,13 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 interes_m = round(saldo_real * tasa_mensual, 2)
                 capital_m = round(cuota - interes_m, 2)
                 
-                # Ajuste final si pagamos más de lo que debemos
                 if capital_m > saldo_real:
                     capital_m = saldo_real
                     cuota = round(capital_m + interes_m, 2)
 
                 saldo_real = round(saldo_real - capital_m, 2)
                 
-                # Ajuste saldo teórico (para reducciones en plazo)
+                # Ajuste saldo teórico
                 int_teorico = round(saldo_teorico * tasa_mensual, 2)
                 amort_teorica = round(cuota - int_teorico, 2)
                 saldo_teorico = round(saldo_teorico - amort_teorica, 2)
@@ -90,12 +89,11 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 'Saldo': saldo_real, 'Amort_Extra': 0
             })
             
-            # 3. AMORTIZACIÓN EXTRA (Solo en mes 12 y si hay deuda)
+            # 3. AMORTIZACIÓN EXTRA
             if m == 11 and saldo_real > 0 and puntos_amort[anio] > 0:
                 ejec = round(min(puntos_amort[anio], saldo_real), 2)
                 saldo_real = round(saldo_real - ejec, 2)
-                if tipo_reduc == 'CUOTA': saldo_teorico = saldo_real # Si reduces cuota, el teórico baja
-                # Si reduces plazo, el saldo_teorico NO baja (se mantiene artificialmente alto para forzar cuota alta)
+                if tipo_reduc == 'CUOTA': saldo_teorico = saldo_real
                 
                 data[-1]['Amort_Extra'] = ejec
                 data[-1]['Capital'] = round(data[-1]['Capital'] + ejec, 2)
@@ -118,7 +116,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ DINÁMICA (SIDEBAR)
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 4.0 (Fixed)")
+st.title("🏦 Simulador Hipotecario Pro 4.1")
 st.markdown("---")
 
 with st.sidebar:
@@ -159,7 +157,7 @@ with st.sidebar:
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
 
     st.markdown("---")
-    # --- SECCIÓN VINCULACIONES (SEGUROS) ---
+    # --- SECCIÓN VINCULACIONES ---
     st.header("🖇️ Vinculaciones (Seguros)")
     st.caption("Coste anual de los productos bonificadores:")
     col_s1, col_s2 = st.columns(2)
@@ -232,31 +230,22 @@ total_gastos_vida_mensual = g_comida + g_suministros + g_gasolina + g_otros
 coste_mensual_seguros = (s_hogar + s_vida) / 12
 
 for i, camino in enumerate(caminos_eur):
-    # Escenario Actual (Con amortizaciones)
+    # Escenario Actual
     df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc)
-    
-    # Escenario Base (Sin amortizaciones, siempre plazo original)
+    # Escenario Base
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
     
-    # --- CÁLCULOS PATRIMONIALES CORREGIDOS ---
-    # Lógica: Mientras haya hipoteca activa (Saldo > 0), pagas seguro. Si Saldo = 0, dejas de pagar seguro.
+    # --- CÁLCULOS PATRIMONIALES ---
     df['Seguros_Pagados'] = np.where(df['Saldo'] > 0, coste_mensual_seguros, 0)
-    
-    # Gasto Total = Cuota + Seguros (si aplican) + Gastos Vida
     gasto_tot = df['Cuota'] + df['Seguros_Pagados'] + total_gastos_vida_mensual
     
-    # Ahorro Líquido Acumulado
     df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
     df['Equity'] = precio_vivienda - df['Saldo']
     df['Patrimonio'] = df['Ahorro_Liquido'] + df['Equity']
     
     kpis_int.append(df['Intereses'].sum())
     kpis_seguros.append(df['Seguros_Pagados'].sum())
-    
-    # Ahorro vs Base
     kpis_ahorro.append(df_base['Intereses'].sum() - df['Intereses'].sum())
-    
-    # Patrimonio Final (Ultimo mes del periodo TOTAL)
     kpis_pat.append(df['Patrimonio'].iloc[-1])
     
     cuotas_matrix.append(df['Cuota'].values)
@@ -268,7 +257,7 @@ for i, camino in enumerate(caminos_eur):
 
     if n_sims > 50: bar.progress((i+1)/n_sims)
 
-# Seleccionar escenario mediana por intereses
+# Seleccionar escenario mediana
 idx_med = np.argsort(kpis_int)[len(kpis_int)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
@@ -285,13 +274,10 @@ if n_sims > 1:
 # ==========================================
 # 5. DASHBOARD
 # ==========================================
-# Cálculos de Totales para KPIs
 intereses_totales = np.median(kpis_int)
-seguros_totales = np.median(kpis_seguros) # Ahora calcula solo mientras haya hipoteca viva
+seguros_totales = np.median(kpis_seguros)
 coste_total_operacion = intereses_totales + seguros_totales
 ahorro_intereses = np.median(kpis_ahorro)
-
-# Cálculo tiempo real
 meses_con_hipoteca = len(df_median[df_median['Saldo'] > 0])
 meses_ahorrados = (anios_p * 12) - meses_con_hipoteca
 
@@ -306,14 +292,27 @@ st.subheader("🚀 Beneficio por Amortizar")
 c4, c5, c6 = st.columns(3)
 c4.metric("Ahorro Intereses", f"{ahorro_intereses:,.0f} €", delta="Generado por amortizar", delta_color="normal")
 c5.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} a, {meses_ahorrados % 12} m", help="Tiempo que vivirás sin pagar cuota")
-# AQUI ESTÁ EL DATO CLAVE CORREGIDO
-c6.metric("Patrimonio Final (Año 25)", f"{np.median(kpis_pat):,.0f} €", help="Incluye todo el ahorro acumulado después de pagar la hipoteca", delta="Valor Real Comparable")
+c6.metric("Patrimonio Final (Año 25)", f"{np.median(kpis_pat):,.0f} €", help="Incluye todo el ahorro acumulado", delta="Valor Real Comparable")
 
-# --- PANEL DE RIESGO ---
+# --- PANEL DE RIESGO RESTAURADO ---
+st.markdown("---")
 if n_sims > 1 and modo_h != "FIJA":
+    # 90%
     p5_int = np.percentile(kpis_int, 5)
     p95_int = np.percentile(kpis_int, 95)
-    st.info(f"📊 **Incertidumbre:** Pagarás de intereses entre **{p5_int:,.0f} €** (escenario favorable) y **{p95_int:,.0f} €** (escenario adverso).")
+    # 80% (RESTORED)
+    p10_int = np.percentile(kpis_int, 10)
+    p90_int = np.percentile(kpis_int, 90)
+    
+    st.subheader("🎲 Riesgo de Intereses (Monte Carlo)")
+    cr1, cr2 = st.columns(2)
+    with cr1:
+        st.info(f"📊 **Horquilla 90% Probabilidad:**\nPagarás entre **{p5_int:,.0f} €** y **{p95_int:,.0f} €** de intereses.")
+    with cr2:
+        st.warning(f"🎯 **Horquilla 80% Probabilidad:**\nPagarás entre **{p10_int:,.0f} €** y **{p90_int:,.0f} €** de intereses.")
+
+elif modo_h == "FIJA":
+    st.success("🔒 **Riesgo Cero:** Al ser tipo FIJO, sabes exactamente lo que vas a pagar desde el día 1.")
 
 st.markdown("---")
 tabs = ["📉 Tipos & Cuotas", "🛡️ Estrategia Amortización", "💰 Patrimonio"]
@@ -336,7 +335,6 @@ with tab1:
 
     with col_cuota:
         st.subheader("Evolución Cuota Mensual")
-        # Visualizamos toda la vida del préstamo, incluso cuando es 0
         fig_q = go.Figure()
         fig_q.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Cuota'], line=dict(color='#c0392b', width=2), name='Cuota Pagada'))
         fig_q.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0))
@@ -346,7 +344,6 @@ with tab2:
     g1, g2 = st.columns(2)
     with g1:
         st.subheader("Interés Acumulado")
-        # Comparativa acumulada
         fig_r = go.Figure()
         fig_r.add_trace(go.Scatter(x=df_base_median['Mes'], y=df_base_median['Intereses'].cumsum(), name='Escenario Base (Sin amortizar)', line=dict(color='gray', dash='dash')))
         fig_r.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Intereses'].cumsum(), name='Con Amortizaciones', line=dict(color='#e74c3c')))
@@ -356,8 +353,8 @@ with tab2:
     with g2:
         st.subheader("Deuda Pendiente")
         fig_race = go.Figure()
-        fig_race.add_trace(go.Scatter(x=df_base_median['Mes'], y=df_base_median['Saldo'], name='Saldo Base', line=dict(color='gray', dash='dash')))
-        fig_race.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Saldo'], fill='tozeroy', name='Saldo Real', line=dict(color='#27ae60')))
+        fig_race.add_trace(go.Scatter(x=df_base_median['Saldo'], name='Saldo Base', line=dict(color='gray', dash='dash'))) # Fix minor axis warning
+        fig_race.add_trace(go.Scatter(x=df_median['Saldo'], fill='tozeroy', name='Saldo Real', line=dict(color='#27ae60')))
         fig_race.update_layout(height=350, margin=dict(t=30,b=0,l=0,r=0), legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_race, use_container_width=True)
 
@@ -368,8 +365,7 @@ with tab3:
     # Patrimonio con amortizaciones
     fig_nw.add_trace(go.Scatter(x=df_median['Mes'], y=df_median['Patrimonio'], name='Patrimonio (Amortizando)', line=dict(color='#8e44ad', width=4)))
     
-    # Patrimonio base (para que veas la diferencia)
-    # Calculamos el patrimonio base "on the fly" para el gráfico
+    # Patrimonio base 
     gasto_base = df_base_median['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     ahorro_base = ahorro_inicial + (ingresos - gasto_base).cumsum()
     pat_base = ahorro_base + (precio_vivienda - df_base_median['Saldo'])
