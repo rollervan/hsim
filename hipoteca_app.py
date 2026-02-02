@@ -149,7 +149,7 @@ with st.sidebar:
     # MODO
     comparar = st.checkbox("Comparar dos opciones", value=False)
     
-    # Inicialización de variables para evitar errores
+    # --- INICIALIZACIÓN DE VARIABLES (Evita NameError) ---
     es_autopromotor = False
     meses_carencia = 0
     s_hogar_A, s_vida_A = 0, 0
@@ -243,7 +243,7 @@ with st.sidebar:
         s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=300)
         s_vida_A = st.number_input("Seguro Vida (€/año)", value=300)
 
-        # Replicamos para B (para que no falle el código)
+        # Replicamos para B (para evitar fallos de referencia)
         modo_B, anios_B = modo_A, anios_A
         tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
         s_hogar_B, s_vida_B = s_hogar_A, s_vida_A
@@ -307,6 +307,9 @@ with st.expander("Amortización Anticipada"):
         val = cols_a[i % 4].slider(f"Año {i+1}", 0, 10000, 0, step=500, key=f"s_a{i}")
         amort_list.append(val)
 
+# Detectamos si hay amortización real para evitar errores de cálculo (0 euros / -1 meses)
+hay_amortizacion = sum(amort_list) > 0
+
 # CÁLCULOS
 kpis_int_A, kpis_int_B = [], []
 kpis_pat_A = []
@@ -326,6 +329,7 @@ if n_sims > 100: prog_bar = st.progress(0)
 
 for i, camino in enumerate(caminos_eur):
     # --- ESCENARIO A ---
+    # En modo comparación forzamos autopromotor a False para simplificar, o usa el valor si es individual
     ap_flag = es_autopromotor if not comparar else False
     carencia_val = meses_carencia if not comparar else 0
     
@@ -385,6 +389,7 @@ if n_sims > 1:
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
 meses_A = len(df_median_A[df_median_A['Saldo'] > 0])
+
 idx_ref = 0 if not (es_autopromotor and not comparar) else meses_carencia
 if idx_ref >= len(df_median_A): idx_ref = 0
 cuota_ini_A = df_median_A.iloc[idx_ref]['Cuota']
@@ -441,16 +446,23 @@ if comparar:
 
 else:
     # --- VISTA INDIVIDUAL ---
-    meses_ahorrados = (anios_A * 12) - meses_A
-    a_save = meses_ahorrados // 12
-    m_save = meses_ahorrados % 12
     
-    if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
-    elif a_save > 0: txt_tiempo = f"-{a_save} años"
-    elif m_save > 0: txt_tiempo = f"-{m_save} meses"
-    else: txt_tiempo = "0 meses"
-
-    ahorro_int = np.median(kpis_ahorro_A)
+    # CORRECCIÓN DE ERROR -1 MESES
+    if hay_amortizacion:
+        meses_ahorrados = max(0, (anios_A * 12) - meses_A)
+        a_save = meses_ahorrados // 12
+        m_save = meses_ahorrados % 12
+        
+        if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
+        elif a_save > 0: txt_tiempo = f"-{a_save} años"
+        elif m_save > 0: txt_tiempo = f"-{m_save} meses"
+        else: txt_tiempo = "0 meses"
+        
+        ahorro_int = np.median(kpis_ahorro_A)
+    else:
+        # Si no hay amortización, forzamos 0 para limpieza
+        txt_tiempo = "Sin cambios"
+        ahorro_int = 0
 
     st.markdown("### Resumen")
     k1, k2, k3, k4 = st.columns(4)
