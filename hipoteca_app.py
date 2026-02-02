@@ -238,7 +238,6 @@ with st.sidebar:
             if modo_prev == "Manual (Ajuste fino)":
                 st.info("Ajuste manual de tipos futuros")
                 eur_list = []
-                # Creamos un contenedor scrolleable o limitado si son muchos años
                 for i in range(n_años_var):
                      eur_list.append(st.slider(f"Año {i + 1 + anios_fijos}", -1.0, 7.0, 3.2, key=f"e{i}", help="Tipo estimado"))
                 caminos_eur = [eur_list]
@@ -257,10 +256,9 @@ st.title("Simulador Financiero Hipotecario")
 st.markdown("Análisis detallado de costes, riesgos y proyección patrimonial.")
 
 # --- BARRA DE AMORTIZACIÓN EXTRA ---
-# La movemos aquí para que sea más usable horizontalmente
 with st.expander("Planificación de Amortizaciones Extraordinarias", expanded=False):
     st.info("Define aportaciones de capital anuales para reducir la deuda anticipadamente.")
-    cols_a = st.columns(6) # Más columnas para que sea compacto
+    cols_a = st.columns(6) 
     amort_list = [cols_a[i%6].number_input(f"Año {i+1}", 0, 50000, 0, step=500, key=f"a{i}") for i in range(anios_p)]
 
 # --- CÁLCULO ---
@@ -271,7 +269,6 @@ df_median, df_base_median = None, None
 total_gastos_vida_mensual = g_comida + g_suministros + g_gasolina + g_otros
 coste_mensual_seguros = (s_hogar + s_vida) / 12
 
-# Barra de progreso sutil si hay muchas simulaciones
 if n_sims > 50: 
     bar_text = st.empty()
     bar = st.progress(0)
@@ -279,7 +276,7 @@ if n_sims > 50:
 for i, camino in enumerate(caminos_eur):
     # Escenario Actual
     df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc, es_autopromotor, meses_carencia)
-    # Escenario Base (comparativa sin amortizar)
+    # Escenario Base 
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO', es_autopromotor, meses_carencia)
     
     # Cálculos Patrimoniales
@@ -330,7 +327,7 @@ ahorro_intereses = np.median(kpis_ahorro)
 meses_con_hipoteca = len(df_median[df_median['Saldo'] > 0])
 meses_ahorrados = (anios_p * 12) - meses_con_hipoteca
 
-# Cuota primer mes (o primer mes post-carencia para ser representativo)
+# Cuota primer mes
 idx_ref = 0 if not es_autopromotor else meses_carencia
 cuota_inicial = df_median.iloc[idx_ref]['Cuota']
 tasa_inicial = df_median.iloc[idx_ref]['Tasa']
@@ -341,7 +338,7 @@ tasa_inicial = df_median.iloc[idx_ref]['Tasa']
 
 st.divider()
 
-# FILA DE KPIs (TARJETAS)
+# FILA DE KPIs
 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 
 with col_kpi1:
@@ -366,16 +363,36 @@ with tabs[0]:
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        st.subheader("Trayectoria Euríbor")
+        st.subheader("Trayectoria Euríbor (Con Incertidumbre)")
         if modo_h == "FIJA":
             st.info("Hipoteca a Tipo Fijo: Sin exposición a fluctuaciones de mercado.")
         else:
             mat_eur = np.array(eur_matrix)
+            
+            # --- CORRECCIÓN: Cálculo de percentiles para visualizar incertidumbre ---
             p50_eur = np.percentile(mat_eur, 50, axis=0)
+            p10_eur = np.percentile(mat_eur, 10, axis=0) # Banda inferior
+            p90_eur = np.percentile(mat_eur, 90, axis=0) # Banda superior
+            
             anios_x = np.arange(1, len(p50_eur)+1)
             
             fig_e = go.Figure()
-            fig_e.add_trace(go.Scatter(x=anios_x, y=p50_eur, line=dict(color='#3498db', width=3), name='Euríbor Estimado'))
+            
+            # Dibujar bandas de confianza (Fan Chart)
+            fig_e.add_trace(go.Scatter(
+                x=anios_x, y=p90_eur,
+                mode='lines', line=dict(width=0),
+                showlegend=False, hoverinfo='skip'
+            ))
+            fig_e.add_trace(go.Scatter(
+                x=anios_x, y=p10_eur,
+                mode='lines', line=dict(width=0),
+                fill='tonexty', fillcolor='rgba(52, 152, 219, 0.2)', # Azul suave transparente
+                name='Rango Probable (80%)', showlegend=True
+            ))
+            
+            # Línea Mediana
+            fig_e.add_trace(go.Scatter(x=anios_x, y=p50_eur, line=dict(color='#3498db', width=3), name='Euríbor Mediana'))
             fig_e.update_layout(template="plotly_white", height=350, margin=dict(t=20,b=20), xaxis_title="Año", yaxis_title="Tipo %")
             st.plotly_chart(fig_e, use_container_width=True)
 
@@ -416,7 +433,6 @@ with tabs[2]:
     
     fig_nw = go.Figure()
     
-    # Datos base para comparativa
     gasto_base = df_base_median['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     ahorro_base = ahorro_inicial + (ingresos - gasto_base).cumsum()
     pat_base = ahorro_base + (precio_vivienda - df_base_median['Saldo'])
