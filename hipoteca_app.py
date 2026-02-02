@@ -4,10 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Configuración de página
-st.set_page_config(page_title="Simulador Hipotecario Pro (Stochastic v2.5)", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro v2.6", layout="wide")
 
 # ==========================================
-# 1. NÚCLEO MATEMÁTICO (Auditado)
+# 1. NÚCLEO MATEMÁTICO (Auditado con Redondeo Bancario)
 # ==========================================
 def calcular_hipoteca(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc):
     n_meses_total = anios * 12
@@ -16,7 +16,6 @@ def calcular_hipoteca(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
     data = []
     mes_global = 1
     
-    # Asegurar longitud de listas (relleno por el final)
     puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, anios - len(euribor_puntos)))
     puntos_amort = list(amortizaciones) + [0] * (max(0, anios - len(amortizaciones)))
 
@@ -74,137 +73,118 @@ def calcular_hipoteca(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
     return pd.DataFrame(data)
 
 # ==========================================
-# 2. MOTOR ESTOCÁSTICO (Modelo Vasicek)
+# 2. MOTOR ESTOCÁSTICO (Modelo Vasicek - Defaults 2026)
 # ==========================================
 def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
-    """Genera n_sims caminos de tipos de interés."""
-    dt = 1 # Paso anual
+    dt = 1 
     simulaciones = []
     for _ in range(n_sims):
         camino = [r0]
         for t in range(anios - 1):
             dr = kappa * (theta - camino[-1]) * dt + sigma * np.random.normal()
             nuevo_r = camino[-1] + dr
-            camino.append(max(-1.0, nuevo_r)) # Límite suelo -1%
+            simulaciones.append(max(-1.0, nuevo_r))
         simulaciones.append(camino)
     return np.array(simulaciones)
 
 # ==========================================
 # 3. INTERFAZ STREAMLIT
 # ==========================================
-st.title("🏦 Simulador Hipotecario Profesional v2.5")
+st.title("🏦 Simulador Hipotecario: Análisis de Escenarios 2026")
 
 with st.sidebar:
-    st.header("⚙️ Configuración Préstamo")
-    modo_h = st.selectbox("Modalidad Préstamo", ["MIXTA", "VARIABLE", "FIJA"])
-    tipo_reduc = st.radio("Estrategia Amortización", ["PLAZO", "CUOTA"])
+    st.header("⚙️ Configuración")
+    modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
+    tipo_reduc = st.radio("Reducir en...", ["PLAZO", "CUOTA"])
     capital = st.number_input("Capital Pendiente (€)", value=180000, step=1000)
-    anios_p = st.number_input("Plazo Restante (Años)", value=25, min_value=1)
+    anios_p = st.number_input("Años Restantes", value=25, min_value=1)
     
     st.markdown("---")
-    st.header("📈 Modo Previsión Euríbor")
-    modo_prevision = st.radio("Método de cálculo", ["Manual (Sliders)", "Estocástico (Monte Carlo)"])
+    st.header("📈 Previsión Euríbor")
+    modo_prev = st.radio("Método", ["Estocástico (Vasicek)", "Manual (Sliders)"])
     
-    if modo_prevision == "Estocástico (Monte Carlo)":
-        st.info("Modelo Vasicek: Reversión a la media.")
-        theta = st.slider("Media L/P (θ) %", 0.0, 5.0, 2.5, 0.1)
-        sigma = st.slider("Volatilidad (σ)", 0.0, 2.0, 0.8, 0.1)
-        kappa = st.slider("Vel. Reversión (κ)", 0.0, 1.0, 0.3, 0.1)
-        r0 = st.number_input("Euríbor Inicial %", value=2.5)
+    if modo_prev == "Estocástico (Vasicek)":
+        st.caption("Ajustado a previsiones de febrero 2026")
+        theta = st.slider("Media L/P (θ)", 0.0, 5.0, 2.25, 0.05, help="Consenso analistas 2026-2028: ~2.25%")
+        sigma = st.slider("Volatilidad (σ)", 0.0, 2.0, 0.60, 0.05)
+        kappa = st.slider("Vel. Reversión (κ)", 0.0, 1.0, 0.30, 0.05)
+        r0 = st.number_input("Euríbor Actual %", value=2.24)
     
     st.markdown("---")
     tipo_fijo = st.number_input("Tipo Fijo (%)", value=2.2, format="%.2f")
-    anios_fijos = st.number_input("Años de tramo fijo", value=7) if modo_h == "MIXTA" else 0
+    anios_fijos = st.number_input("Años tramo fijo", value=7) if modo_h == "MIXTA" else 0
     diferencial = st.number_input("Diferencial Variable (%)", value=0.55, format="%.2f")
 
-# --- Generación de Datos de Euríbor ---
+# --- Lógica de Euríbor ---
 n_años_var = anios_p if modo_h == "VARIABLE" else max(0, anios_p - anios_fijos)
 
-if modo_prevision == "Manual (Sliders)":
-    st.subheader("📉 Previsión Euríbor Manual")
+if modo_prev == "Manual (Sliders)":
     eur_list = []
-    with st.expander("Configurar Euríbor año a año", expanded=True):
+    with st.expander("Configurar Euríbor Manual", expanded=True):
         cols = st.columns(4)
         for i in range(n_años_var):
             with cols[i % 4]:
-                val = st.slider(f"A{anios_p-n_años_var+i+1}", -1.0, 6.0, 2.5, key=f"eur_{i}", step=0.1)
-                eur_list.append(val)
-    # Lista de una sola simulación
+                eur_list.append(st.slider(f"A{anios_p-n_años_var+i+1}", -1.0, 6.0, 2.25, key=f"e_{i}"))
     caminos_eur = [eur_list]
 else:
-    st.subheader("🎲 Simulación de Monte Carlo (100 escenarios)")
-    caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims=100)
+    caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims=1000)
 
-# --- Sliders Amortización ---
+# --- Amortización ---
 st.subheader("💰 Amortización Extra Anual")
 amort_list = []
 with st.expander("Configurar Pagos Extra", expanded=False):
     cols_a = st.columns(4)
     for i in range(anios_p):
         with cols_a[i % 4]:
-            val_a = st.slider(f"Año {i+1}", 0, 20000, 0, key=f"am_{i}", step=500)
-            amort_list.append(val_a)
+            amort_list.append(st.slider(f"Año {i+1}", 0, 20000, 0, key=f"a_{i}", step=500))
 
 # ==========================================
-# 4. PROCESAMIENTO MULTI-ESCENARIO
+# 4. CÁLCULOS
 # ==========================================
-resultados_intereses = []
-resultados_ahorro = []
-df_final_median = None
+resultados_int = []
+resultados_aho = []
+df_central = None
 
-# Corremos la simulación para cada camino de Euríbor generado
 for camino in caminos_eur:
     res = calcular_hipoteca(capital, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc)
-    # Escenario base para ROI
     res_b = calcular_hipoteca(capital, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
-    
-    resultados_intereses.append(res['Intereses'].sum())
-    resultados_ahorro.append(res_b['Intereses'].sum() - res['Intereses'].sum())
-    
-    # Guardamos el primer dataframe (o el central) para visualización
-    if df_final_median is None: df_final_median = res
+    resultados_int.append(res['Intereses'].sum())
+    resultados_aho.append(res_b['Intereses'].sum() - res['Intereses'].sum())
+    if df_central is None: df_central = res
 
-# Estadísticas finales
-interes_medio = np.median(resultados_intereses)
-ahorro_medio = np.median(resultados_ahorro)
-p5_int, p95_int = np.percentile(resultados_intereses, 5), np.percentile(resultados_intereses, 95)
+int_med, aho_med = np.median(resultados_int), np.median(resultados_aho)
+p5, p95 = np.percentile(resultados_int, 5), np.percentile(resultados_int, 95)
 
 # ==========================================
-# 5. RENDERIZADO RESULTADOS
+# 5. RESULTADOS
 # ==========================================
-m1, m2, m3 = st.columns(3)
-if modo_prevision == "Manual (Sliders)":
-    m1.metric("Intereses Totales", f"{interes_medio:,.0f} €")
-    m2.metric("Ahorro por Amortización", f"{ahorro_medio:,.0f} €")
-else:
-    m1.metric("Intereses (Mediana)", f"{interes_medio:,.0f} €", help=f"Rango Probable (P5-P95): {p5_int:,.0f}€ - {p95_int:,.0f}€")
-    m2.metric("Ahorro Medio", f"{ahorro_medio:,.0f} €")
+c1, c2, c3 = st.columns(3)
+c1.metric("Intereses (Mediana)", f"{int_act:,.0f} €" if 'int_act' in locals() else f"{int_med:,.0f} €")
+c2.metric("Ahorro Amortización", f"{aho_med:,.0f} €")
+c3.metric("Tiempo Ahorrado", f"{(anios_p*12 - len(df_central))//12}a {(anios_p*12 - len(df_central))%12}m")
 
-m3.metric("Tiempo Ahorrado", f"{(anios_p*12 - len(df_final_median))//12}a {(anios_p*12 - len(df_final_median))%12}m")
+if modo_prev == "Estocástico (Vasicek)":
+    st.warning(f"⚠️ **Análisis de Riesgo:** En el peor escenario (P95), los intereses suben a **{p95:,.0f} €**.")
 
 st.markdown("---")
-c1, c2 = st.columns(2)
+g1, g2 = st.columns(2)
 
-with c1:
-    st.write("**Euríbor: Escenario Central vs Incertidumbre**")
-    fig_eur, ax_eur = plt.subplots(figsize=(10, 4))
-    x_axis = np.arange(1, n_años_var + 1)
-    if modo_prevision == "Manual (Sliders)":
-        ax_eur.plot(x_axis, caminos_eur[0], marker='o', color='#2980b9')
+with g1:
+    st.write("**Previsión Euríbor (Nube de Probabilidad)**")
+    fig, ax = plt.subplots(figsize=(10, 4))
+    x = np.arange(1, n_años_var + 1)
+    if modo_prev == "Manual (Sliders)":
+        ax.plot(x, caminos_eur[0], marker='o', color='#3498db')
     else:
-        p05 = np.percentile(caminos_eur, 5, axis=0)
-        p50 = np.percentile(caminos_eur, 50, axis=0)
-        p95 = np.percentile(caminos_eur, 95, axis=0)
-        ax_eur.plot(x_axis, p50, color='#2980b9', label='Mediana')
-        ax_eur.fill_between(x_axis, p05, p95, color='#2980b9', alpha=0.2, label='Rango Confianza 90%')
-    ax_eur.set_ylabel("Euríbor %")
-    ax_eur.grid(True, alpha=0.3)
-    ax_eur.legend()
-    st.pyplot(fig_eur)
+        ax.plot(x, np.percentile(caminos_eur, 50, axis=0), color='#2980b9', label='Mediana')
+        ax.fill_between(x, np.percentile(caminos_eur, 5, axis=0), np.percentile(caminos_eur, 95, axis=0), color='#2980b9', alpha=0.2, label='Rango P5-P95')
+    ax.set_ylabel("Euríbor %")
+    ax.legend()
+    st.pyplot(fig)
 
-with c2:
-    st.write("**Cuota Mensual Estimada**")
-    st.line_chart(df_final_median.set_index('Mes')['Cuota'])
+with g2:
+    st.write("**Cuota Mensual (Escenario Central)**")
+    st.line_chart(df_central.set_index('Mes')['Cuota'])
 
-if st.checkbox("Ver tabla detallada (Escenario Central)"):
-    st.dataframe(df_final_median)
+if st.checkbox("Ver cuadro de amortización detallado"):
+    st.dataframe(df_central)
