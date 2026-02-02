@@ -145,16 +145,19 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # 2. INTERFAZ: SIDEBAR
 # ==========================================
 with st.sidebar:
-    st.title("Parámetros")
+    st.header("Parámetros")
     
     # TOGGLE DE COMPARACIÓN
     st.markdown("### ⚙️ Modo de Análisis")
     comparar = st.checkbox("🆚 Comparar dos escenarios", value=False)
     
     with st.expander("Perfil Económico (Común)", expanded=not comparar):
+        # RESTAURADO A TUS VALORES ORIGINALES
         ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
-        ahorro_inicial = st.number_input("Ahorro inicial (€)", value=10000, step=1000)
-        precio_vivienda = st.number_input("Valor Vivienda (€)", value=200000, step=5000)
+        ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
+        precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
+        
+        # En modo comparativo usamos este como global, pero por defecto es 180k
         capital_init_global = st.number_input("Capital Préstamo (€)", value=180000, step=1000)
 
     st.markdown("---")
@@ -166,6 +169,7 @@ with st.sidebar:
         
         with colA:
             st.markdown("#### 🅰️ Opción A")
+            # Defaults ORIGINALES para opción A
             modo_A = st.selectbox("Modo A", ["MIXTA", "VARIABLE", "FIJA"], key="mA")
             anios_A = st.number_input("Años A", value=25, key="yA")
             
@@ -184,28 +188,37 @@ with st.sidebar:
 
         with colB:
             st.markdown("#### 🅱️ Opción B")
+            # Opción B por defecto ligeramente distinta para que la comparación tenga sentido visual
             modo_B = st.selectbox("Modo B", ["MIXTA", "VARIABLE", "FIJA"], index=2, key="mB")
-            anios_B = st.number_input("Años B", value=20, key="yB")
+            anios_B = st.number_input("Años B", value=25, key="yB")
             
             tipo_fijo_B = 0.0
             diferencial_B = 0.0
             anios_fijos_B = 0
             
             if modo_B == "FIJA":
-                tipo_fijo_B = st.number_input("TIN B (%)", value=2.90, step=0.05, key="tfB")
+                tipo_fijo_B = st.number_input("TIN B (%)", value=2.75, step=0.05, key="tfB")
             elif modo_B == "VARIABLE":
-                diferencial_B = st.number_input("Dif. B (%)", value=0.45, step=0.05, key="dfB")
+                diferencial_B = st.number_input("Dif. B (%)", value=0.55, step=0.05, key="dfB")
             elif modo_B == "MIXTA":
-                tipo_fijo_B = st.number_input("Fijo B (%)", value=2.15, step=0.05, key="mfaB")
-                anios_fijos_B = st.number_input("Años Fijos B", value=3, key="myaB")
-                diferencial_B = st.number_input("Dif. Var B", value=0.45, step=0.05, key="mdaB")
+                tipo_fijo_B = st.number_input("Fijo B (%)", value=2.25, step=0.05, key="mfaB")
+                anios_fijos_B = st.number_input("Años Fijos B", value=5, key="myaB")
+                diferencial_B = st.number_input("Dif. Var B", value=0.55, step=0.05, key="mdaB")
                 
     else:
         # --- MODO INDIVIDUAL (CLÁSICO) ---
-        st.subheader("Condiciones del Préstamo")
+        # RESTAURADO A TU CÓDIGO ORIGINAL
+        st.subheader("Préstamo")
         modo_A = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
+        
+        es_autopromotor = st.checkbox("Es Autopromoción", value=False)
+        meses_carencia = 0
+        if es_autopromotor:
+            meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
+            
         anios_A = st.number_input("Duración (Años)", value=25, min_value=1)
         
+        st.subheader("Condiciones")
         tipo_fijo_A = 0.0
         diferencial_A = 0.0
         anios_fijos_A = 0
@@ -220,7 +233,7 @@ with st.sidebar:
             anios_fijos_A = c2.number_input("Años Fijos", value=5)
             diferencial_A = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
             
-        # Replicamos variables para que el código B no rompa, aunque no se use
+        # Replicamos variables para que el código B no rompa
         modo_B, anios_B = modo_A, anios_A
         tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
 
@@ -228,6 +241,7 @@ with st.sidebar:
     tipo_reduc = st.radio("Amortizar reduciendo:", ["PLAZO", "CUOTA"])
 
     with st.expander("Gastos y Vinculaciones", expanded=False):
+        # RESTAURADO A TU CÓDIGO ORIGINAL
         s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
         s_vida = st.number_input("Seguro Vida (€/año)", value=300)
         st.markdown("**Gastos Mensuales**")
@@ -253,6 +267,7 @@ with st.sidebar:
                 theta = st.slider("Media (Long Term)", 0.0, 5.0, 2.25)
                 sigma = st.slider("Volatilidad", 0.0, 2.0, 0.60)
                 kappa = st.slider("Reversión", 0.0, 1.0, 0.30)
+                # RESTAURADO
                 r0 = st.number_input("Euríbor Actual", value=2.24)
             else:
                 n_sims = 1
@@ -308,11 +323,16 @@ if n_sims > 100: prog_bar = st.progress(0)
 
 for i, camino in enumerate(caminos_eur):
     # --- ESCENARIO A ---
-    df_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, amort_list, tipo_reduc, False, 0)
+    # Nota: Pasamos autopromotor/carencia solo si estamos en modo individual (o si quisieras implementarlo en A)
+    # Por defecto en comparación se asume hipoteca estándar para simplificar, o usa los valores de A si no es comparación.
+    ap_flag = es_autopromotor if not comparar else False
+    carencia_val = meses_carencia if not comparar else 0
+    
+    df_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val)
     
     # Cálculos adicionales para Modo Individual (Patrimonio, Ahorro vs Base)
     if not comparar:
-        df_base_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, [0]*anios_A, 'PLAZO', False, 0)
+        df_base_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
         kpis_ahorro_A.append(df_base_A['Intereses'].sum() - df_A['Intereses'].sum())
     
     df_A['Seguros'] = np.where(df_A['Saldo'] > 0, coste_mes_seguros, 0)
@@ -347,14 +367,18 @@ if n_sims > 100: prog_bar.empty()
 idx_med = np.argsort(kpis_int_A)[len(kpis_int_A)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
+    
+    ap_flag = es_autopromotor if not comparar else False
+    carencia_val = meses_carencia if not comparar else 0
+
     # Recalcular A
-    df_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, amort_list, tipo_reduc, False, 0)
+    df_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, amort_list, tipo_reduc, ap_flag, carencia_val)
     df_median_A['Seguros'] = np.where(df_median_A['Saldo'] > 0, coste_mes_seguros, 0)
     df_median_A['Ahorro_Liq'] = ahorro_inicial + (ingresos - (df_median_A['Cuota'] + df_median_A['Seguros'] + total_gastos)).cumsum() - df_median_A['Amort_Extra'].cumsum()
     df_median_A['Patrimonio'] = df_median_A['Ahorro_Liq'] + (precio_vivienda - df_median_A['Saldo'])
     
     if not comparar:
-        df_base_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, [0]*anios_A, 'PLAZO', False, 0)
+        df_base_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
 
     if comparar:
         # Recalcular B con el mismo camino
@@ -364,7 +388,9 @@ if n_sims > 1:
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
 meses_A = len(df_median_A[df_median_A['Saldo'] > 0])
-cuota_ini_A = df_median_A.iloc[0]['Cuota']
+
+idx_ref = 0 if not (es_autopromotor and not comparar) else meses_carencia
+cuota_ini_A = df_median_A.iloc[idx_ref]['Cuota']
 
 # ==========================================
 # DASHBOARD: LÓGICA DE VISUALIZACIÓN
@@ -432,7 +458,7 @@ else:
 
     st.markdown("### Resumen Ejecutivo")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[0]['Tasa']:.2f}% TIN")
+    k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
     k2.metric("Total Intereses", f"{df_median_A['Intereses'].sum():,.0f} €", delta_color="inverse")
     k3.metric("Coste Operación (Int+Seg)", f"{coste_A:,.0f} €", delta_color="inverse")
     k4.metric("Ahorro por Amortizar", f"{ahorro_int:,.0f} €", txt_tiempo)
@@ -464,6 +490,8 @@ else:
             fig2 = px.line(df_median_A, x='Mes', y='Cuota')
             fig2.update_traces(line_color='#d9534f', line_width=2.5)
             fig2.update_layout(template='plotly_white', height=350)
+            if es_autopromotor:
+                fig2.add_vline(x=meses_carencia, line_dash="dot", annotation_text="Fin Carencia")
             st.plotly_chart(fig2, use_container_width=True)
 
     # TAB 2: AMORTIZACIÓN (DETALLE)
