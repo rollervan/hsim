@@ -226,13 +226,17 @@ with st.sidebar:
 st.title("Simulador Financiero Pro 4.3")
 st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
 
-# Amortizaciones con Sliders (Máximo 10.000€)
+# ==========================================
+# CAMBIO 1: AMORTIZACIONES CON SLIDERS
+# ==========================================
 with st.expander("Estrategia de Amortización Anticipada"):
     st.info("Desliza para programar amortizaciones anuales extra (Máx 10.000€/año)")
-    cols_a = st.columns(4) # Reducido a 4 columnas para que el slider respire mejor
+    # Usamos 4 columnas para que los sliders tengan espacio
+    cols_a = st.columns(4) 
     
     amort_list = []
     for i in range(anios_p):
+        # Slider en lugar de number_input
         valor = cols_a[i % 4].slider(
             f"Año {i+1}", 
             min_value=0, 
@@ -296,7 +300,23 @@ int_total = np.median(kpis_int)
 seg_total = np.median(kpis_seguros)
 coste_total = int_total + seg_total
 ahorro_int = np.median(kpis_ahorro)
-meses_total = len(df_median[df_median['Saldo'] > 0])
+
+# ==========================================
+# CAMBIO 2: CÁLCULO DE AHORRO EN TIEMPO (Años y Meses)
+# ==========================================
+meses_con_deuda = len(df_median[df_median['Saldo'] > 0])
+meses_ahorrados_total = (anios_p * 12) - meses_con_deuda
+ahorro_anios = meses_ahorrados_total // 12
+ahorro_meses_restantes = meses_ahorrados_total % 12
+
+if ahorro_anios > 0 and ahorro_meses_restantes > 0:
+    texto_ahorro_tiempo = f"-{ahorro_anios} años y {ahorro_meses_restantes} meses"
+elif ahorro_anios > 0:
+    texto_ahorro_tiempo = f"-{ahorro_anios} años"
+elif ahorro_meses_restantes > 0:
+    texto_ahorro_tiempo = f"-{ahorro_meses_restantes} meses"
+else:
+    texto_ahorro_tiempo = "0 meses"
 
 idx_ref = 0 if not es_autopromotor else meses_carencia
 cuota_ini = df_median.iloc[idx_ref]['Cuota']
@@ -308,7 +328,8 @@ k1, k2, k3, k4 = st.columns(4)
 k1.metric("Cuota Inicial", f"{cuota_ini:,.2f} €", f"{tasa_ini:.2f}% TIN")
 k2.metric("Total Intereses (Est.)", f"{int_total:,.0f} €", delta_color="inverse")
 k3.metric("Coste Operación (Int+Seg)", f"{coste_total:,.0f} €", delta_color="inverse")
-k4.metric("Ahorro por Amortizar", f"{ahorro_int:,.0f} €", f"-{(anios_p*12 - meses_total)//12} años")
+# APLICAMOS EL TEXTO CALCULADO
+k4.metric("Ahorro por Amortizar", f"{ahorro_int:,.0f} €", texto_ahorro_tiempo)
 
 st.markdown("---")
 
