@@ -452,7 +452,7 @@ with tabs[1]:
             st.write(f"**Escenario Central:** {intereses_totales:,.0f} €")
             st.write(f"**Escenario Adverso (P95):** {p95_int:,.0f} €")
             st.markdown("---")
-            st.caption("Los valores representan el total de intereses pagados al final de la vida del préstamo bajo 1000 iteraciones de Monte Carlo.")
+            st.caption("Frecuencia de resultados sobre 1000 iteraciones.")
             
             fig_hist = go.Figure()
             fig_hist.add_trace(go.Histogram(
@@ -462,7 +462,19 @@ with tabs[1]:
                 nbinsx=20,
                 name='Frecuencia'
             ))
-            fig_hist.update_layout(height=250, margin=dict(l=20, r=20, t=10, b=20), **layout_corp)
+            
+            # --- CORRECCIÓN TÉCNICA AQUÍ ---
+            # Creamos una copia del layout corporativo para no generar conflicto de argumentos
+            hist_layout = layout_corp.copy()
+            # Actualizamos la copia con los valores específicos para este gráfico
+            hist_layout.update(dict(
+                height=250, 
+                margin=dict(l=20, r=20, t=10, b=20)
+            ))
+            
+            fig_hist.update_layout(**hist_layout)
+            # -------------------------------
+            
             st.plotly_chart(fig_hist, use_container_width=True)
 
 with tabs[2]:
