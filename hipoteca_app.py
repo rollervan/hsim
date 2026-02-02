@@ -265,8 +265,11 @@ c4.metric("Tiempo Ahorrado", f"{(len(df_base_median)-len(df_median))//12} años"
 # --- PANEL DE RIESGO ---
 if n_sims > 1 and modo_h != "FIJA":
     p5_int = np.percentile(kpis_int, 5)
+    p10_int = np.percentile(kpis_int, 10)
+    p90_int = np.percentile(kpis_int, 90)
     p95_int = np.percentile(kpis_int, 95)
     st.info(f"📊 **Horquilla de Riesgo (90% Probabilidad):** Pagarás entre **{p5_int:,.0f} €** (Mejor caso) y **{p95_int:,.0f} €** (Peor caso).")
+    st.info(f"📊 **Horquilla de Riesgo (80% Probabilidad):** Pagarás entre **{p10_int:,.0f} €** (Mejor caso) y **{p90_int:,.0f} €** (Peor caso).")
 elif modo_h == "FIJA":
     st.success("🔒 **Riesgo Cero:** Al ser tipo FIJO, sabes exactamente lo que vas a pagar desde el día 1.")
 
