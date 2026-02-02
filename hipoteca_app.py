@@ -234,7 +234,7 @@ if modo_h != "FIJA":
         if modo_prev == "Manual (Sliders)":
             with st.expander("🛠️ Ajustar Euríbor Manualmente", expanded=True):
                 # CORRECCIÓN: Se suma 'anios_fijos' al índice para reflejar el año real (ej: A6, A7...)
-                eur_list = [st.slider(f"A{i + 1 + anios_fijos}", -1.0, 7.0, 2.25, key=f"e{i}") for i in range(n_años_var)]
+                eur_list = [st.slider(f"A{i + 1 + anios_fijos}", -1.0, 7.0, 3.2, key=f"e{i}") for i in range(n_años_var)]
             caminos_eur = [eur_list]
         else:
             caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims)
