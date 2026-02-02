@@ -149,9 +149,9 @@ st.markdown("---")
 
 with st.sidebar:
     st.header("👤 Perfil Financiero")
-    ingresos = st.number_input("Ingresos Mensuales (€)", value=3000, step=100)
-    ahorro_inicial = st.number_input("Ahorro Inicial (€)", value=20000, step=1000)
-    precio_vivienda = st.number_input("Valor Vivienda/Obra (€)", value=220000, step=5000)
+    ingresos = st.number_input("Ingresos Mensuales (€)", value=2500, step=100)
+    ahorro_inicial = st.number_input("Ahorro Inicial (€)", value=0, step=1000)
+    precio_vivienda = st.number_input("Valor Vivienda/Obra (€)", value=0, step=5000)
     
     st.markdown("---")
     st.header("⚙️ Estructura Préstamo")
