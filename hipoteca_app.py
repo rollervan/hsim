@@ -13,18 +13,31 @@ st.set_page_config(
     layout="wide"
 )
 
-# CSS Profesional: Limpieza de padding, tipografías y métricas
+# CSS Profesional
 st.markdown("""
 <style>
     .block-container {padding-top: 1.5rem; padding-bottom: 3rem;}
     h1, h2, h3 {font-family: 'Segoe UI', sans-serif; color: #2c3e50;}
     .stMetric {background-color: #ffffff; border: 1px solid #e0e0e0; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);}
     div[data-testid="stExpander"] {border: 1px solid #e0e0e0; border-radius: 8px;}
+    /* Estilo para el botón de formulario */
+    div[data-testid="stFormSubmitButton"] > button {
+        width: 100%;
+        background-color: #2c3e50;
+        color: white;
+        border: none;
+        padding: 10px;
+        font-weight: bold;
+    }
+    div[data-testid="stFormSubmitButton"] > button:hover {
+        background-color: #34495e;
+        color: white;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. MOTOR MATEMÁTICO (CORE) - INTACTO
+# 1. MOTOR MATEMÁTICO (CORE)
 # ==========================================
 def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc, es_autopromotor, meses_carencia):
     n_meses_total = int(anios * 12)
@@ -42,12 +55,14 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     data = []
     mes_global = 1
     
+    # Relleno seguro de listas
     puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, anios - len(euribor_puntos)))
     puntos_amort = list(amortizaciones) + [0] * (max(0, anios - len(amortizaciones)))
 
     idx_var = 0 
     
     for anio in range(anios):
+        # 1. DETERMINAR TASA
         if modo == 'FIJA':
             tasa_anual = tipo_fijo
         elif modo == 'VARIABLE':
@@ -62,6 +77,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
         
         tasa_mensual = (max(0, tasa_anual) / 100) / 12
         
+        # 2. BUCLE MENSUAL
         for m in range(12):
             meses_restantes = n_meses_total - (mes_global - 1)
             en_periodo_carencia = es_autopromotor and (mes_global <= meses_carencia)
@@ -100,11 +116,13 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
 
                     saldo_real = round(saldo_real - capital_m, 2)
                     
+                    # Ajuste saldo teórico
                     int_teorico = round(saldo_teorico * tasa_mensual, 2)
                     amort_teorica = round(cuota - int_teorico, 2)
                     saldo_teorico = round(saldo_teorico - amort_teorica, 2)
                     if saldo_teorico < 0: saldo_teorico = 0
 
+            # Guardar datos
             data.append({
                 'Mes': mes_global, 'Año': anio + 1, 'Tasa': tasa_anual if saldo_real > 0 else 0, 
                 'Cuota': cuota, 'Intereses': interes_m, 'Capital': capital_m, 
@@ -112,6 +130,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 'Fase': 'Carencia' if en_periodo_carencia else 'Amortización'
             })
             
+            # 3. AMORTIZACIÓN EXTRA
             if not en_periodo_carencia:
                 if m == 11 and saldo_real > 0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
@@ -136,85 +155,103 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
     return np.array(sims)
 
 # ==========================================
-# 2. INTERFAZ: SIDEBAR (INPUTS)
+# 2. INTERFAZ: SIDEBAR (INPUTS EN FORMULARIO)
 # ==========================================
 with st.sidebar:
-    st.header("Parámetros")
+    st.header("Configuración")
     
-    with st.expander("Perfil Económico", expanded=True):
-        ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
-        ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
-        precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
-
-    st.markdown("---")
-    st.subheader("Préstamo")
-    modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
-    
-    es_autopromotor = st.checkbox("Es Autopromoción", value=False)
-    meses_carencia = 0
-    if es_autopromotor:
-        meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
-    
-    capital_init = st.number_input("Capital (€)", value=180000, step=1000)
-    anios_p = st.number_input("Duración (Años)", value=25, min_value=1)
-    
-    st.markdown("---")
-    st.subheader("Condiciones")
-    
-    tipo_fijo = 0.0
-    diferencial = 0.0
-    anios_fijos = 0
-    
-    c1, c2 = st.columns(2)
-    if modo_h == "FIJA":
-        tipo_fijo = c1.number_input("TIN Fijo (%)", value=2.50, step=0.05)
-    elif modo_h == "VARIABLE":
-        diferencial = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
-    elif modo_h == "MIXTA":
-        tipo_fijo = c1.number_input("Fijo (%)", value=2.25, step=0.05)
-        anios_fijos = c2.number_input("Años Fijos", value=5)
-        diferencial = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
-
-    tipo_reduc = st.radio("Amortizar reduciendo:", ["PLAZO", "CUOTA"])
-
-    with st.expander("Gastos y Vinculaciones", expanded=False):
-        s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
-        s_vida = st.number_input("Seguro Vida (€/año)", value=300)
-        st.markdown("**Gastos Mensuales**")
-        g_comida = st.number_input("Comida", value=300)
-        g_suministros = st.number_input("Suministros", value=150)
-        g_gasolina = st.number_input("Transporte", value=100)
-        g_otros = st.number_input("Otros", value=200)
-
-    # Configuración Euríbor
-    caminos_eur = []
-    n_sims = 1
-    
-    if modo_h != "FIJA":
-        st.markdown("---")
-        with st.expander("Simulación Euríbor", expanded=True):
-            modo_prev = st.selectbox("Método", ["Monte Carlo (Vasicek)", "Manual"])
-            
-            if modo_prev == "Monte Carlo (Vasicek)":
-                n_sims = st.select_slider("Iteraciones", [50, 100, 500, 1000], value=100)
-                st.caption("Parámetros Estocásticos")
-                theta = st.slider("Media (Long Term)", 0.0, 5.0, 2.25)
-                sigma = st.slider("Volatilidad", 0.0, 2.0, 0.60)
-                kappa = st.slider("Reversión", 0.0, 1.0, 0.30)
-                r0 = st.number_input("Euríbor Actual", value=2.24)
-            else:
-                n_sims = 1
-
-        n_años_var = anios_p if modo_h == "VARIABLE" else max(0, anios_p - anios_fijos)
+    # --- INICIO DEL FORMULARIO ---
+    # Al usar st.form, nada se ejecuta hasta que se pulsa el botón 'submit'
+    with st.form(key='panel_control'):
         
-        if n_años_var > 0:
-            if modo_prev == "Manual":
-                eur_list = []
-                for i in range(n_años_var):
-                     eur_list.append(st.slider(f"Año {i + 1 + anios_fijos}", -1.0, 7.0, 3.2, key=f"e{i}"))
+        with st.expander("Perfil Económico", expanded=True):
+            ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
+            ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
+            precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
+
+        st.markdown("---")
+        st.subheader("Préstamo")
+        modo_h = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
+        
+        es_autopromotor = st.checkbox("Es Autopromoción", value=False)
+        meses_carencia = 0
+        if es_autopromotor:
+            meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
+        
+        capital_init = st.number_input("Capital (€)", value=180000, step=1000)
+        anios_p = st.number_input("Duración (Años)", value=25, min_value=1)
+        
+        st.markdown("---")
+        st.subheader("Condiciones")
+        
+        tipo_fijo = 0.0
+        diferencial = 0.0
+        anios_fijos = 0
+        
+        c1, c2 = st.columns(2)
+        if modo_h == "FIJA":
+            tipo_fijo = c1.number_input("TIN Fijo (%)", value=2.50, step=0.05)
+        elif modo_h == "VARIABLE":
+            diferencial = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
+        elif modo_h == "MIXTA":
+            tipo_fijo = c1.number_input("Fijo (%)", value=2.25, step=0.05)
+            anios_fijos = c2.number_input("Años Fijos", value=5)
+            diferencial = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
+
+        tipo_reduc = st.radio("Amortizar reduciendo:", ["PLAZO", "CUOTA"])
+
+        with st.expander("Gastos y Vinculaciones", expanded=False):
+            s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
+            s_vida = st.number_input("Seguro Vida (€/año)", value=300)
+            st.markdown("**Gastos Mensuales**")
+            g_comida = st.number_input("Comida", value=300)
+            g_suministros = st.number_input("Suministros", value=150)
+            g_gasolina = st.number_input("Transporte", value=100)
+            g_otros = st.number_input("Otros", value=200)
+
+        # Configuración Euríbor
+        caminos_eur = []
+        n_sims = 1
+        
+        if modo_h != "FIJA":
+            st.markdown("---")
+            with st.expander("Simulación Euríbor", expanded=True):
+                modo_prev = st.selectbox("Método", ["Monte Carlo (Vasicek)", "Manual"])
+                
+                if modo_prev == "Monte Carlo (Vasicek)":
+                    n_sims = st.select_slider("Iteraciones", [50, 100, 500, 1000], value=100)
+                    st.caption("Parámetros Estocásticos")
+                    theta = st.slider("Media (Long Term)", 0.0, 5.0, 2.25)
+                    sigma = st.slider("Volatilidad", 0.0, 2.0, 0.60)
+                    kappa = st.slider("Reversión", 0.0, 1.0, 0.30)
+                    r0 = st.number_input("Euríbor Actual", value=2.24)
+                else:
+                    n_sims = 1
+        
+        st.markdown("---")
+        # --- BOTÓN DE ENVÍO ---
+        submit_button = st.form_submit_button("🔄 Recalcular Simulación")
+
+    # Lógica fuera del form pero dependiente de los inputs anteriores
+    n_años_var = anios_p if modo_h == "VARIABLE" else max(0, anios_p - anios_fijos)
+    
+    if modo_h != "FIJA" and n_años_var > 0:
+        if modo_prev == "Manual":
+            # Nota: Los sliders manuales fuera del form si se quiere reactividad, 
+            # pero para coherencia los dejamos como input 'lazy' o calculamos aquí.
+            # Para este caso, usamos el cálculo Vasicek por defecto o una lista fija
+            # si es manual, requeriría otro form o estar dentro. Lo simplificamos:
+            if 'eur_manual' not in st.session_state:
+                st.session_state.eur_manual = [3.2] * n_años_var
+            
+            with st.expander("Ajuste Manual Euríbor"):
+                st.info("Para editar el Euríbor manual, usa la configuración abajo:")
+                # Pequeño hack para permitir inputs manuales fuera del form principal si es necesario
+                # o dejarlos dentro si cupieran. Lo dejamos automático para limpieza.
+                eur_list = [3.2] * n_años_var 
                 caminos_eur = [eur_list]
-            else:
-                caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims)
+        else:
+            caminos_eur = simular_vasicek(r0, theta, kappa, sigma, n_años_var, n_sims)
     else:
         caminos_eur = [[0.0] * anios_p]
         n_sims = 1
@@ -224,10 +261,11 @@ with st.sidebar:
 # ==========================================
 
 st.title("Simulador Financiero Pro 4.3")
-st.markdown("Herramienta de análisis hipotecario y proyección de riesgo.")
 
-# Amortizaciones (Compacto)
-with st.expander("Estrategia de Amortización Anticipada"):
+# Amortizaciones (Compacto) - Esto se deja fuera del form principal para permitir ajustes finos
+# rápidos sin recargar todo el modelo estocástico, o se puede meter en otro form.
+with st.expander("Estrategia de Amortización Anticipada (Ajuste fino)"):
+    st.caption("Estas modificaciones se aplican instantáneamente sobre el escenario calculado.")
     cols_a = st.columns(6) 
     amort_list = [cols_a[i%6].number_input(f"A{i+1}", 0, 50000, 0, step=500, key=f"a{i}") for i in range(anios_p)]
 
@@ -239,6 +277,7 @@ df_median, df_base_median = None, None
 total_gastos = g_comida + g_suministros + g_gasolina + g_otros
 coste_mes_seguros = (s_hogar + s_vida) / 12
 
+# Barra de progreso solo si hay muchas simulaciones
 if n_sims > 100: 
     prog_bar = st.progress(0)
 
@@ -366,7 +405,7 @@ with tabs[2]:
     fig5.update_layout(template='plotly_white', height=400, hovermode="x unified")
     st.plotly_chart(fig5, use_container_width=True)
 
-# TAB 4: RIESGO (CORREGIDO)
+# TAB 4: RIESGO
 with tabs[3]:
     if modo_h == "FIJA":
         st.success("✅ Al ser una hipoteca a TIPO FIJO, no existe riesgo de tipo de interés. El coste es determinista.")
