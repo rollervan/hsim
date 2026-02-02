@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 3.3", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 3.4", page_icon="🏦", layout="wide")
 
 # ==========================================
 # 1. MOTOR MATEMÁTICO (CORE AUDITADO)
@@ -103,7 +103,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ Y CONFIGURACIÓN
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 3.3")
+st.title("🏦 Simulador Hipotecario Pro 3.4")
 st.markdown("---")
 
 with st.sidebar:
@@ -170,15 +170,16 @@ for i, camino in enumerate(caminos_eur):
     # Escenario Base (Sin amortizar)
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
     
-    # KPIs
+    # Cálculos Patrimoniales (Al vuelo para KPIs)
     gasto_tot = df['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
-    df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
-    df['Patrimonio'] = df['Ahorro_Liquido'] + (precio_vivienda - df['Saldo'])
+    ahorro_liq = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
+    equity = precio_vivienda - df['Saldo']
+    patrimonio = ahorro_liq + equity
     
     tot_int = df['Intereses'].sum()
     kpis_int.append(tot_int)
     kpis_ahorro.append(df_base['Intereses'].sum() - tot_int)
-    kpis_pat.append(df['Patrimonio'].iloc[-1])
+    kpis_pat.append(patrimonio.iloc[-1])
     cuotas_matrix.append(df['Cuota'].values)
     
     if i == 0: 
@@ -193,13 +194,18 @@ if n_sims > 1:
     camino_med = caminos_eur[idx_med]
     df_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, amort_list, tipo_reduc)
     df_base_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, [0]*anios_p, 'PLAZO')
-    # Recalcular patrimonial
-    gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
-    df_median['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
-    df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + (precio_vivienda - df_median['Saldo'])
 
 # ==========================================
-# 4. DASHBOARD (TODO INCLUIDO)
+# 4. RECALCULAR COLUMNAS PATRIMONIALES (FIX KEY ERROR)
+# ==========================================
+# IMPORTANTE: Volvemos a calcular las columnas que faltan en el DF final (mediana)
+gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + gastos_fijos
+df_median['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
+df_median['Equity'] = precio_vivienda - df_median['Saldo'] # <--- Esta línea faltaba y causaba el KeyError
+df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + df_median['Equity']
+
+# ==========================================
+# 5. DASHBOARD
 # ==========================================
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Intereses Totales (Mediana)", f"{np.median(kpis_int):,.0f} €")
@@ -214,13 +220,13 @@ if n_sims > 1:
     st.info(f"📊 **Horquilla de Riesgo (90% Probabilidad):** Pagarás entre **{p5_int:,.0f} €** (Mejor caso) y **{p95_int:,.0f} €** (Peor caso) de intereses totales.")
 
 st.markdown("---")
-# Tabs organizadas para no perder información
+# Tabs organizadas
 tab1, tab2, tab3 = st.tabs(["📉 Tipos & Cuotas", "🛡️ Estrategia Amortización", "💰 Patrimonio"])
 
 with tab1:
     col_eur, col_cuota = st.columns(2)
     
-    # 1. EVOLUCIÓN EURIBOR (RESTAURADO)
+    # 1. EVOLUCIÓN EURIBOR
     with col_eur:
         st.subheader("Evolución Euríbor Previsto")
         eur_matrix = np.array(caminos_eur)
@@ -251,7 +257,7 @@ with tab1:
 with tab2:
     g1, g2 = st.columns(2)
     
-    # 3. INTERÉS PENDIENTE (COMPARATIVA)
+    # 3. INTERÉS PENDIENTE
     with g1:
         st.subheader("Interés Restante: Real vs Original")
         int_pend_base = (df_base_median['Intereses'].sum() - df_base_median['Intereses'].cumsum()).round(2)
