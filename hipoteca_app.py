@@ -196,11 +196,11 @@ with st.sidebar:
     with col_s1:
         s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
     with col_s2:
-        s_vida = st.number_input("Seguro Vida (€/año)", value=400)
+        s_vida = st.number_input("Seguro Vida (€/año)", value=300)
     
     st.markdown("---")
     st.header("🛡️ Gastos de Vida")
-    g_comida = st.number_input("Comida (€)", value=400, step=50)
+    g_comida = st.number_input("Comida (€)", value=300, step=50)
     g_suministros = st.number_input("Suministros (€)", value=150, step=10)
     g_gasolina = st.number_input("Transporte (€)", value=100, step=10)
     g_otros = st.number_input("Otros gastos (€)", value=200, step=10)
