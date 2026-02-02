@@ -6,13 +6,13 @@ import plotly.graph_objects as go
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-st.set_page_config(page_title="Simulador Hipotecario Pro 3.6", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="Simulador Hipotecario Pro 3.7", page_icon="🏦", layout="wide")
 
 # ==========================================
 # 1. MOTOR MATEMÁTICO (CORE)
 # ==========================================
 def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc):
-    n_meses_total = anios * 12
+    n_meses_total = int(anios * 12)
     saldo_real = round(float(capital), 2)
     saldo_teorico = round(float(capital), 2)
     data = []
@@ -106,7 +106,7 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 # ==========================================
 # 2. INTERFAZ DINÁMICA (SIDEBAR)
 # ==========================================
-st.title("🏦 Simulador Hipotecario Pro 3.6")
+st.title("🏦 Simulador Hipotecario Pro 3.7")
 st.markdown("---")
 
 with st.sidebar:
@@ -127,7 +127,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("🏦 Condiciones Banco")
     
-    # VARIABLES DINÁMICAS (Lógica de visibilidad)
+    # VARIABLES DINÁMICAS
     tipo_fijo = 0.0
     diferencial = 0.0
     anios_fijos = 0
@@ -147,18 +147,22 @@ with st.sidebar:
         diferencial = st.number_input("Diferencial (%)", value=0.55, step=0.05)
 
     st.markdown("---")
-    st.header("🛡️ Gastos Mensuales")
+    # --- SECCIÓN VINCULACIONES (SEGUROS) ---
+    st.header("🖇️ Vinculaciones (Seguros)")
+    st.caption("Coste anual de los productos bonificadores:")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        s_hogar = st.number_input("Seguro Hogar (€/año)", value=300)
+    with col_s2:
+        s_vida = st.number_input("Seguro Vida (€/año)", value=400)
     
-    # --- MODIFICACIÓN SOLICITADA ---
-    s_hogar = st.number_input("Seguro Hogar/año (€)", value=300)
-    s_vida = st.number_input("Seguro Vida/año (€)", value=400)
-    
-    st.caption("Gastos de Vida:")
+    st.markdown("---")
+    st.header("🛡️ Gastos de Vida")
+    st.caption("Gastos mensuales (sin hipoteca ni seguros):")
     g_comida = st.number_input("Comida (€)", value=400, step=50)
-    g_suministros = st.number_input("Luz, agua, internet (€)", value=150, step=10)
-    g_gasolina = st.number_input("Gasolina (€)", value=100, step=10)
+    g_suministros = st.number_input("Suministros (Luz/Agua) (€)", value=150, step=10)
+    g_gasolina = st.number_input("Transporte (€)", value=100, step=10)
     g_otros = st.number_input("Otros gastos (€)", value=200, step=10)
-    # -------------------------------
 
 
 # ==========================================
@@ -198,7 +202,7 @@ else:
 
 
 st.subheader("💰 Amortización Extra")
-with st.expander("Configurar Aportaciones"):
+with st.expander("Configurar Aportaciones Anuales"):
     cols_a = st.columns(4)
     amort_list = [cols_a[i%4].slider(f"Año {i+1}", 0, 20000, 0, step=500, key=f"a{i}") for i in range(anios_p)]
 
@@ -211,18 +215,20 @@ df_median, df_base_median = None, None
 
 if n_sims > 50: bar = st.progress(0)
 
-# Cálculo de la suma de gastos fijos mensuales
+# GASTOS MENSUALES
 total_gastos_vida_mensual = g_comida + g_suministros + g_gasolina + g_otros
+coste_mensual_seguros = (s_hogar + s_vida) / 12  # Prorrateo mensual
 
 for i, camino in enumerate(caminos_eur):
-    # Escenario Actual
+    # Escenario Actual (Con amortizaciones)
     df = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, amort_list, tipo_reduc)
-    # Escenario Base
+    
+    # Escenario Base (Sin amortizaciones, solo plazo)
     df_base = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino, [0]*anios_p, 'PLAZO')
     
-    # Cálculos Patrimoniales
-    # Sumamos los seguros (anual/12) + los nuevos gastos desglosados
-    gasto_tot = df['Cuota'] + (s_hogar + s_vida)/12 + total_gastos_vida_mensual
+    # --- CÁLCULOS PATRIMONIALES ---
+    # Gasto Total = Cuota Hipoteca + Seguros + Gastos Vida
+    gasto_tot = df['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     
     df['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df['Amort_Extra'].cumsum()
     df['Equity'] = precio_vivienda - df['Saldo']
@@ -240,15 +246,15 @@ for i, camino in enumerate(caminos_eur):
 
     if n_sims > 50: bar.progress((i+1)/n_sims)
 
-# Seleccionar mediana
+# Seleccionar escenario mediana
 idx_med = np.argsort(kpis_int)[len(kpis_int)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
     df_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, amort_list, tipo_reduc)
     df_base_median = calcular_hipoteca_core(capital_init, anios_p, diferencial, tipo_fijo, anios_fijos, modo_h, camino_med, [0]*anios_p, 'PLAZO')
     
-    # Recalcular patrimonial mediana con los nuevos gastos
-    gasto_tot = df_median['Cuota'] + (s_hogar + s_vida)/12 + total_gastos_vida_mensual
+    # Recalcular patrimonial mediana
+    gasto_tot = df_median['Cuota'] + coste_mensual_seguros + total_gastos_vida_mensual
     df_median['Ahorro_Liquido'] = ahorro_inicial + (ingresos - gasto_tot).cumsum() - df_median['Amort_Extra'].cumsum()
     df_median['Equity'] = precio_vivienda - df_median['Saldo']
     df_median['Patrimonio'] = df_median['Ahorro_Liquido'] + df_median['Equity']
@@ -256,23 +262,22 @@ if n_sims > 1:
 # ==========================================
 # 5. DASHBOARD
 # ==========================================
+# Cálculos de Totales para KPIs
+intereses_totales = np.median(kpis_int)
+seguros_totales = coste_mensual_seguros * len(df_median) # Coste durante la vida del préstamo
+coste_total_operacion = intereses_totales + seguros_totales
+
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Intereses Totales (Mediana)", f"{np.median(kpis_int):,.0f} €")
-c2.metric("Ahorro Intereses", f"{np.median(kpis_ahorro):,.0f} €", delta="Generado por amortizar", delta_color="normal")
-c3.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €")
-meses_ahorrados = len(df_base_median) - len(df_median)
-c4.metric("Tiempo Ahorrado", f"{meses_ahorrados // 12} años y {meses_ahorrados % 12} meses")
+c1.metric("Intereses Banco", f"{intereses_totales:,.0f} €", help="Solo lo que pagas de intereses al banco")
+c2.metric("Gasto en Seguros", f"{seguros_totales:,.0f} €", help="Coste acumulado de Vida + Hogar durante la hipoteca", delta="- Gasto", delta_color="inverse")
+c3.metric("COSTE REAL TOTAL", f"{coste_total_operacion:,.0f} €", help="Intereses + Seguros (Lo que realmente pagas por el dinero)", delta_color="off")
+c4.metric("Patrimonio Final", f"{np.median(kpis_pat):,.0f} €", help="Valor Casa + Ahorros al final")
 
 # --- PANEL DE RIESGO ---
 if n_sims > 1 and modo_h != "FIJA":
     p5_int = np.percentile(kpis_int, 5)
-    p10_int = np.percentile(kpis_int, 10)
-    p90_int = np.percentile(kpis_int, 90)
     p95_int = np.percentile(kpis_int, 95)
-    st.info(f"📊 **Horquilla de Riesgo (90% Probabilidad):** Pagarás entre **{p5_int:,.0f} €** (Mejor caso) y **{p95_int:,.0f} €** (Peor caso).")
-    st.info(f"📊 **Horquilla de Riesgo (80% Probabilidad):** Pagarás entre **{p10_int:,.0f} €** (Mejor caso) y **{p90_int:,.0f} €** (Peor caso).")
-elif modo_h == "FIJA":
-    st.success("🔒 **Riesgo Cero:** Al ser tipo FIJO, sabes exactamente lo que vas a pagar desde el día 1.")
+    st.info(f"📊 **Incertidumbre:** Pagarás de intereses entre **{p5_int:,.0f} €** (escenario favorable) y **{p95_int:,.0f} €** (escenario adverso).")
 
 st.markdown("---")
 tabs = ["📉 Tipos & Cuotas", "🛡️ Estrategia Amortización", "💰 Patrimonio"]
