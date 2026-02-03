@@ -132,7 +132,8 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                         
                     data[-1]['Amort_Extra'] = ejec
                     data[-1]['Capital'] = round(data[-1]['Capital'] + ejec, 2)
-            
+                    data[-1]['Saldo'] = saldo_real
+                    
             mes_global += 1
 
     return pd.DataFrame(data)
