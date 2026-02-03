@@ -85,7 +85,8 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 if saldo_real <= 1.0:
                     saldo_real = 0; cuota = 0; interes_m = 0; capital_m = 0
                 else:
-                    base_calc = saldo_teorico if tipo_reduc == 'PLAZO' else saldo_real
+                    # CORRECCIÓN 1: Comparación flexible de string para detectar "PLAZO"
+                    base_calc = saldo_teorico if 'PLAZO' in tipo_reduc else saldo_real
                     if base_calc < saldo_real: base_calc = saldo_real
                     
                     if tasa_mensual > 0:
@@ -127,13 +128,16 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                     
                     # Si reducimos plazo, el saldo teórico no cambia
                     # Si reducimos cuota, el saldo teórico baja para recalcular cuota siguiente
-                    if tipo_reduc == 'CUOTA': 
+                    # CORRECCIÓN 2: Comparación flexible para detectar "CUOTA"
+                    if 'CUOTA' in tipo_reduc: 
                         saldo_teorico = saldo_real
                         
                     data[-1]['Amort_Extra'] = ejec
                     data[-1]['Capital'] = round(data[-1]['Capital'] + ejec, 2)
-                    data[-1]['Saldo'] = saldo_real
                     
+                    # CORRECCIÓN 3: Actualizar el saldo en el registro actual para evitar desfase de 1 mes
+                    data[-1]['Saldo'] = saldo_real
+            
             mes_global += 1
 
     return pd.DataFrame(data)
@@ -470,7 +474,7 @@ else:
         a_save = meses_ahorrados // 12
         m_save = meses_ahorrados % 12
         
-        if tipo_reduc == 'Reducir PLAZO':
+        if 'PLAZO' in tipo_reduc:
             if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
             elif a_save > 0: txt_tiempo = f"-{a_save} años"
             elif m_save > 0: txt_tiempo = f"-{m_save} meses"
