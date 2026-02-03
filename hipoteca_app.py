@@ -496,7 +496,14 @@ else:
     st.markdown("### Resumen")
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
-    k2.metric("Total Intereses", f"{df_median_A['Intereses'].sum():,.0f} €", delta_color="inverse")
+    # CÁLCULO DESGLOSE
+    val_int = df_median_A['Intereses'].sum()
+    val_seg = df_median_A['Seguros'].sum()
+    val_tot = val_int + val_seg
+    
+    # VISUALIZACIÓN
+    k2.metric("Coste Total", f"{val_tot:,.0f} €", delta_color="inverse")
+    k2.caption(f"🏦 Int: {val_int:,.0f} €\n\n🛡️ Seg: {val_seg:,.0f} €")
     
     # NUEVA MÉTRICA DE TIEMPO CLARA
     k3.metric("Plazo Final", txt_duracion, delta_color="off")
