@@ -27,7 +27,7 @@ st.markdown("""
 # ==========================================
 # 1. MOTOR DE CÁLCULO
 # ==========================================
-def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc, es_autopromotor, meses_carencia):
+def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, modo, euribor_puntos, amortizaciones, tipo_reduc, es_autopromotor, meses_carencia, apertura_pct, coste_cert):
     n_meses_total = int(anios * 12)
     
     if es_autopromotor:
@@ -43,7 +43,7 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     data = []
     mes_global = 1
     
-    # Ajustamos longitudes para asegurar que cubrimos todos los años
+    # Ajustamos longitudes
     puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, int(anios) - len(euribor_puntos)))
     len_amort = len(amortizaciones)
     
@@ -52,21 +52,15 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     else:
         puntos_amort = list(amortizaciones[:int(anios)])
 
-    # --- ELIMINADO idx_var = 0 ---
-    
     for anio in range(int(anios)):
         if modo == 'FIJA':
             tasa_anual = tipo_fijo
         elif modo == 'VARIABLE':
-            # CORRECCIÓN: Usar directamente 'anio'
             tasa_anual = puntos_eur[anio] + diferencial
         else: # MIXTA
             if anio < anios_fijos:
                 tasa_anual = tipo_fijo
             else:
-                # CORRECCIÓN IMPORTANTE:
-                # Usamos 'anio' para coger el Euríbor correspondiente a ese momento temporal real.
-                # Antes usábamos idx_var que reiniciaba la curva del euríbor a t=0.
                 val_eur = puntos_eur[anio] 
                 tasa_anual = val_eur + diferencial
                 
@@ -76,6 +70,17 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
             meses_restantes = n_meses_total - (mes_global - 1)
             en_periodo_carencia = es_autopromotor and (mes_global <= meses_carencia)
             
+            # --- CÁLCULO GASTOS FIJOS (NUEVO) ---
+            gastos_fijos_mes = 0.0
+            
+            # 1. Comisión de Apertura (Solo mes 1)
+            if mes_global == 1:
+                gastos_fijos_mes += capital * (apertura_pct / 100)
+            
+            # 2. Gastos Certificación (Solo en meses de carencia/disposición)
+            if en_periodo_carencia:
+                gastos_fijos_mes += coste_cert
+
             if en_periodo_carencia:
                 saldo_real += disposicion_mensual
                 if saldo_real > capital: saldo_real = capital
@@ -119,10 +124,11 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 'Mes': mes_global, 'Año': anio + 1, 'Tasa': tasa_anual if saldo_real > 0 else 0, 
                 'Cuota': cuota, 'Intereses': interes_m, 'Capital': capital_m, 
                 'Saldo': saldo_real, 'Amort_Extra': 0,
+                'Gastos_Fijos': gastos_fijos_mes, # COLUMNA NUEVA
                 'Fase': 'Carencia' if en_periodo_carencia else 'Amortización'
             })
             
-            # APLICACIÓN DE AMORTIZACIÓN ANTICIPADA
+            # AMORTIZACIÓN ANTICIPADA
             if not en_periodo_carencia:
                 if m == 11 and saldo_real > 1.0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
@@ -202,6 +208,12 @@ with st.sidebar:
             s_hogar_A = st.number_input("Hogar A", value=280, key="shA")
             s_vida_A = st.number_input("Vida A", value=188, key="svA")
 
+            st.caption("Gastos Iniciales A")
+            apertura_A = st.number_input("Comisión Apertura A (%)", value=0.4, step=0.1, key="apA")
+            cert_A = 0.0
+            if es_autopromotor:
+                cert_A = st.number_input("Certificación A (€/disp.)", value=30.0, key="ctA")
+
         with colB:
             st.markdown("#### Opción B")
             modo_B = st.selectbox("Tipo B", ["MIXTA", "VARIABLE", "FIJA"], index=2, key="mB")
@@ -223,6 +235,12 @@ with st.sidebar:
             st.caption("Seguros B (€/año)")
             s_hogar_B = st.number_input("Hogar B", value=380, key="shB")
             s_vida_B = st.number_input("Vida B", value=384, key="svB")
+
+            st.caption("Gastos Iniciales B")
+            apertura_B = st.number_input("Comisión Apertura B (%)", value=0.0, step=0.1, key="apB")
+            cert_B = 0.0
+            if es_autopromotor:
+                cert_B = st.number_input("Certificación B (€/disp.)", value=200.0, key="ctB")
                 
     else:
         # VISTA INDIVIDUAL (SIN COMPARAR)
@@ -248,6 +266,15 @@ with st.sidebar:
         st.markdown("**Seguros Vinculados**")
         s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=280)
         s_vida_A = st.number_input("Seguro Vida (€/año)", value=188)
+
+        st.markdown("**Gastos Iniciales**")
+        apertura_A = st.number_input("Comisión Apertura (%)", value=0.4, step=0.1)
+        cert_A = 0.0
+        if es_autopromotor:
+            cert_A = st.number_input("Coste Certificación (€/disp.)", value=30.0)
+
+        # Dummies para B
+        apertura_B, cert_B = apertura_A, cert_A
 
         # Variables dummy para B para evitar errores
         modo_B, anios_B = modo_A, anios_A
