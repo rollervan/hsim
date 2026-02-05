@@ -492,17 +492,76 @@ if comparar:
         fig_s.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Saldo'], name='Opción B', line=dict(color='#ff7f0e', dash='dash', width=3)))
         st.plotly_chart(fig_s, use_container_width=True)
     
-    with tabs[1]:
+with tabs[1]:
         c_a1, c_a2 = st.columns(2)
         with c_a1:
+            st.subheader("Desglose de Costes Acumulados")
             fig_i = go.Figure()
-            fig_i.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Intereses'].cumsum(), name='Intereses A', line=dict(color='#0055aa')))
-            fig_i.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Intereses'].cumsum(), name='Intereses B', line=dict(color='#ff7f0e', dash='dash')))
+            
+            # --- OPCIÓN A (AZULES) ---
+            # 1. Total (Intereses + Seguros) -> LÍNEA GRUESA
+            fig_i.add_trace(go.Scatter(
+                x=df_median_A['Mes'], 
+                y=(df_median_A['Intereses'] + df_median_A['Seguros']).cumsum(), 
+                name='TOTAL ACUMULADO A', 
+                line=dict(color='#0055aa', width=3)
+            ))
+            # 2. Solo Seguros -> PUNTEADA
+            fig_i.add_trace(go.Scatter(
+                x=df_median_A['Mes'], 
+                y=df_median_A['Seguros'].cumsum(), 
+                name='Seguros A', 
+                line=dict(color='#0055aa', dash='dot', width=1)
+            ))
+            # 3. Solo Intereses -> OCULTA POR DEFECTO (para no ensuciar)
+            fig_i.add_trace(go.Scatter(
+                x=df_median_A['Mes'], 
+                y=df_median_A['Intereses'].cumsum(), 
+                name='Solo Intereses A', 
+                line=dict(color='#6699cc', width=1),
+                visible='legendonly' 
+            ))
+
+            # --- OPCIÓN B (NARANJAS) ---
+            # 1. Total (Intereses + Seguros) -> LÍNEA GRUESA
+            fig_i.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=(df_median_B['Intereses'] + df_median_B['Seguros']).cumsum(), 
+                name='TOTAL ACUMULADO B', 
+                line=dict(color='#ff7f0e', width=3, dash='dash')
+            ))
+            # 2. Solo Seguros -> PUNTEADA
+            fig_i.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=df_median_B['Seguros'].cumsum(), 
+                name='Seguros B', 
+                line=dict(color='#ff7f0e', dash='dot', width=1)
+            ))
+            # 3. Solo Intereses -> OCULTA POR DEFECTO
+            fig_i.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=df_median_B['Intereses'].cumsum(), 
+                name='Solo Intereses B', 
+                line=dict(color='#ffbb78', width=1, dash='dash'),
+                visible='legendonly'
+            ))
+
+            fig_i.update_layout(
+                template='plotly_white', 
+                height=400, 
+                legend=dict(orientation="h", y=1.1),
+                hovermode="x unified",
+                yaxis_title="Euros Pagados (€)",
+                title="Coste Total Acumulado (Intereses + Seguros)"
+            )
             st.plotly_chart(fig_i, use_container_width=True)
+            
         with c_a2:
+            st.subheader("Cuota Mensual")
             fig_c = go.Figure()
             fig_c.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Cuota'], name='Cuota A', line=dict(color='#0055aa')))
             fig_c.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Cuota'], name='Cuota B', line=dict(color='#ff7f0e', dash='dash')))
+            fig_c.update_layout(template='plotly_white', height=400, legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig_c, use_container_width=True)
             
     with tabs[2]:
