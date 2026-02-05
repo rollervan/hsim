@@ -449,7 +449,6 @@ if comparar:
     dif_coste = coste_B - coste_A
     ahorro = abs(dif_coste)
     
-    # 1. MENSAJE CLARO DE GANADOR (ENCABEZADO)
     if dif_coste > 1000:
         st.success(f"🏆 **La Opción A es mejor**: Te ahorras **{ahorro:,.0f} €** respecto a la B.")
     elif dif_coste < -1000:
@@ -459,29 +458,18 @@ if comparar:
     
     st.markdown("---")
 
-    # 2. MÉTRICAS DESGLOSADAS (A | B | DIFERENCIA)
-    # Usamos 3 columnas para evitar confusiones
+    # MÉTRICAS VISUALES
     k1, k2, k3 = st.columns(3)
-    
-    # COLUMNA A
-    k1.metric("Opción A (Tu elección)", f"{coste_A:,.0f} €")
-    
-    # COLUMNA B
-    k2.metric("Opción B (Comparativa)", f"{coste_B:,.0f} €")
-    
-    # COLUMNA DIFERENCIA (El semáforo)
-    # Si dif_coste > 0 significa que B es mayor (A ahorra) -> Verde
-    # Si dif_coste < 0 significa que B es menor (B ahorra) -> Verde (para B)
+    k1.metric("Opción A", f"{coste_A:,.0f} €")
+    k2.metric("Opción B", f"{coste_B:,.0f} €")
     
     if dif_coste > 0:
         k3.metric("Diferencia", f"{ahorro:,.0f} €", "Ahorro con A", delta_color="normal")
     else:
         k3.metric("Diferencia", f"{ahorro:,.0f} €", "Ahorro con B", delta_color="normal")
 
-    # SEGUNDA FILA: TIEMPO Y CUOTA
-    st.markdown("<br>", unsafe_allow_html=True) # Espacio
+    st.markdown("<br>", unsafe_allow_html=True)
     t1, t2, t3 = st.columns(3)
-    
     t1.metric("Plazo Real A", fmt_t(meses_reales_A))
     t2.metric("Plazo Real B", fmt_t(meses_reales_B))
     
@@ -495,10 +483,10 @@ if comparar:
 
     st.markdown("---")
     
-    tabs = st.tabs(["Evolución Deuda", "Costes Acumulados", "Tabla de Datos"])
+    # DEFINICIÓN DE PESTAÑAS (INCLUYENDO LA TUYA Y LA DE RIESGO)
+    tabs = st.tabs(["Evolución Deuda", "Costes Acumulados", "Tabla de Datos", "Análisis de Riesgo"])
     
     with tabs[0]:
-        # ... (código gráficos sigue igual)
         fig_s = go.Figure()
         fig_s.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Saldo'], fill='tozeroy', name='Opción A', line=dict(color='#0055aa')))
         fig_s.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Saldo'], name='Opción B', line=dict(color='#ff7f0e', dash='dash', width=3)))
@@ -518,140 +506,30 @@ if comparar:
             st.plotly_chart(fig_c, use_container_width=True)
             
     with tabs[2]:
-        st.dataframe(df_median_A, use_container_width=True, height=200)
-        st.dataframe(df_median_B, use_container_width=True, height=200)
-
-else:
-    # --- VISTA INDIVIDUAL ---
-    
-    if hay_amortizacion:
-        # 1. Calculamos duración del escenario BASE (sin amortizar)
-        meses_base = len(df_base_median_A[df_base_median_A['Saldo'] > 1.0])
-        
-        # 2. Calculamos duración del escenario ACTUAL (con amortización)
-        meses_actual = len(df_median_A[df_median_A['Saldo'] > 1.0])
-        
-        # 3. La diferencia es el ahorro REAL
-        meses_ahorrados = max(0, meses_base - meses_actual)
-        
-        # Formateo de la duración final
-        a_fin = meses_actual // 12
-        m_fin = meses_actual % 12
-        if m_fin > 0: txt_duracion = f"{a_fin} años y {m_fin} meses"
-        else: txt_duracion = f"{a_fin} años"
-
-        # Formateo del ahorro
-        a_save = meses_ahorrados // 12
-        m_save = meses_ahorrados % 12
-        
-        if 'PLAZO' in tipo_reduc:
-            if a_save > 0 and m_save > 0: txt_tiempo = f"-{a_save} años y {m_save} meses"
-            elif a_save > 0: txt_tiempo = f"-{a_save} años"
-            elif m_save > 0: txt_tiempo = f"-{m_save} meses"
-            else: txt_tiempo = "0 meses"
-        else:
-            txt_tiempo = "Baja cuota (mismo plazo)"
-            txt_duracion = f"{meses_base // 12} años" # Si bajamos cuota, el plazo se mantiene
-        
-        ahorro_int = np.median(kpis_ahorro_A)
-    else:
-        # Sin amortización
-        meses_base = len(df_median_A[df_median_A['Saldo'] > 1.0])
-        txt_duracion = f"{meses_base // 12} años"
-        if meses_base % 12 > 0: txt_duracion += f" y {meses_base % 12} meses"
-        
-        txt_tiempo = "Sin cambios"
-        ahorro_int = 0
-
-    st.markdown("### Resumen")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
-    # CÁLCULO DESGLOSE
-    val_int = df_median_A['Intereses'].sum()
-    val_seg = df_median_A['Seguros'].sum()
-    val_tot = val_int + val_seg
-    
-    # VISUALIZACIÓN
-    k2.metric("Coste Total", f"{val_tot:,.0f} €", delta_color="inverse")
-    k2.caption(f"🏦 Int: {val_int:,.0f} €\n\n🛡️ Seg: {val_seg:,.0f} €")
-    
-    # NUEVA MÉTRICA DE TIEMPO CLARA
-    k3.metric("Plazo Final", txt_duracion, delta_color="off")
-    
-    k4.metric("Ahorro (Intereses / Tiempo)", f"{ahorro_int:,.0f} €", txt_tiempo)
-    
-    st.markdown("---")
-
-    tabs = st.tabs(["Evolución", "Amortización", "Patrimonio", "Riesgo"])
-
-    with tabs[0]:
-        c_e1, c_e2 = st.columns(2)
-        with c_e1:
-            st.subheader("Euríbor Estimado")
-            if modo_A == "FIJA":
-                st.info("Hipoteca Fija: Sin cambios.")
-            else:
-                mat = np.array(eur_matrix)
-                p10, p50, p90 = np.percentile(mat, [10, 50, 90], axis=0)
-                x_ax = np.arange(1, len(p50)+1)
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=x_ax, y=p90, mode='lines', line=dict(width=0), showlegend=False))
-                fig.add_trace(go.Scatter(x=x_ax, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,100,250,0.15)', name='Rango Probable'))
-                fig.add_trace(go.Scatter(x=x_ax, y=p50, mode='lines', line=dict(color='#0055aa', width=3), name='Mediana'))
-                fig.update_layout(template='plotly_white', height=350, margin=dict(t=30), legend=dict(orientation="h", y=1.1))
-                st.plotly_chart(fig, use_container_width=True)
-        with c_e2:
-            st.subheader("Cuota Mensual")
-            fig2 = px.line(df_median_A, x='Mes', y='Cuota')
-            fig2.update_traces(line_color='#d9534f', line_width=2.5)
-            fig2.update_layout(template='plotly_white', height=350)
-            if es_autopromotor:
-                fig2.add_vline(x=meses_carencia, line_dash="dot", annotation_text="Fin Carencia")
-            st.plotly_chart(fig2, use_container_width=True)
-
-    with tabs[1]:
-        c_a1, c_a2 = st.columns(2)
-        with c_a1:
-            st.subheader("Intereses Acumulados")
-            fig3 = go.Figure()
-            fig3.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=df_base_median_A['Intereses'].cumsum(), name='Sin Amortizar', line=dict(color='gray', dash='dash')))
-            fig3.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Intereses'].cumsum(), name='Con Amortización', line=dict(color='#d9534f', width=3)))
-            fig3.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
-            st.plotly_chart(fig3, use_container_width=True)
-        with c_a2:
-            st.subheader("Saldo Pendiente")
-            fig4 = go.Figure()
-            fig4.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=df_base_median_A['Saldo'], name='Saldo Base', line=dict(color='gray', dash='dash')))
-            fig4.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Saldo'], fill='tozeroy', name='Saldo Real', line=dict(color='#5cb85c')))
-            fig4.update_layout(template='plotly_white', height=350, legend=dict(orientation="h", y=1.1))
-            st.plotly_chart(fig4, use_container_width=True)
-
-    with tabs[2]:
+        # --- AQUÍ ESTÁ TU CÓDIGO DE TABLAS ---
         st.subheader("Tablas de Amortización Detalladas")
         
-        # 1. Definir columnas exactas para limpiar la visualización
         cols_ver = ['Año', 'Mes', 'Tasa', 'Cuota', 'Intereses', 'Capital', 'Amort_Extra', 'Saldo']
         
-        # 2. Función para generar el Excel en memoria
         def to_excel(df):
             output = io.BytesIO()
-            # Usamos 'xlsxwriter' si está instalado, si no pandas usa el default (openpyxl)
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False, sheet_name='Amortización')
-                # Ajuste básico de formato (opcional)
-                workbook = writer.book
-                worksheet = writer.sheets['Amortización']
-                format1 = workbook.add_format({'num_format': '#,##0.00'})
-                worksheet.set_column('D:H', 12, format1) # Formato moneda columnas D a H
+            # PROTECCIÓN: Intenta usar xlsxwriter (tu código), si falla usa el default para no romper la app
+            try:
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Amortización')
+                    workbook = writer.book
+                    worksheet = writer.sheets['Amortización']
+                    format1 = workbook.add_format({'num_format': '#,##0.00'})
+                    worksheet.set_column('D:H', 12, format1)
+            except ModuleNotFoundError:
+                # Fallback silencioso si no está instalado
+                with pd.ExcelWriter(output) as writer:
+                    df.to_excel(writer, index=False, sheet_name='Amortización')
             return output.getvalue()
 
-        # --- TABLA OPCIÓN A ---
         st.markdown("#### 🔹 Opción A")
-        
-        # Filtramos y copiamos para no tocar el original
         df_export_A = df_median_A[cols_ver].copy()
         
-        # Botón de descarga A
         col_d1, col_d2 = st.columns([1, 4])
         with col_d1:
             st.download_button(
@@ -662,26 +540,14 @@ else:
             )
         
         st.dataframe(
-            df_export_A.style.format({
-                'Tasa': '{:.3f}%', 
-                'Cuota': '{:,.2f}', 
-                'Intereses': '{:,.2f}', 
-                'Capital': '{:,.2f}', 
-                'Amort_Extra': '{:,.2f}', 
-                'Saldo': '{:,.2f}'
-            }), 
-            use_container_width=True, 
-            height=300
+            df_export_A.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), 
+            use_container_width=True, height=300
         )
 
-        # --- TABLA OPCIÓN B (Si existe) ---
         if comparar:
             st.markdown("---")
             st.markdown("#### 🔸 Opción B")
-            
             df_export_B = df_median_B[cols_ver].copy()
-            
-            # Botón de descarga B
             col_db1, col_db2 = st.columns([1, 4])
             with col_db1:
                 st.download_button(
@@ -690,16 +556,103 @@ else:
                     file_name='simulacion_hipoteca_B.xlsx',
                     mime='application/vnd.ms-excel'
                 )
-
             st.dataframe(
-                df_export_B.style.format({
-                    'Tasa': '{:.3f}%', 
-                    'Cuota': '{:,.2f}', 
-                    'Intereses': '{:,.2f}', 
-                    'Capital': '{:,.2f}', 
-                    'Amort_Extra': '{:,.2f}', 
-                    'Saldo': '{:,.2f}'
-                }), 
-                use_container_width=True, 
-                height=300
+                df_export_B.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), 
+                use_container_width=True, height=300
             )
+
+    with tabs[3]:
+        # --- AQUÍ ESTÁ EL ANÁLISIS DE RIESGO ---
+        st.subheader("Distribución de Coste Total")
+        if n_sims < 10:
+            st.warning("⚠️ Selecciona 'Monte Carlo' en la barra lateral con +50 simulaciones para ver el riesgo.")
+        else:
+            fig_risk = go.Figure()
+            fig_risk.add_trace(go.Histogram(x=kpis_int_A, name='Opción A', opacity=0.75, marker_color='#0055aa'))
+            if comparar:
+                fig_risk.add_trace(go.Histogram(x=kpis_int_B, name='Opción B', opacity=0.75, marker_color='#ff7f0e'))
+            fig_risk.update_layout(barmode='overlay', title_text='Probabilidad de Coste', xaxis_title_text='Coste Total', template='plotly_white')
+            st.plotly_chart(fig_risk, use_container_width=True)
+
+else:
+    # --- VISTA INDIVIDUAL (ELSE) ---
+    if hay_amortizacion:
+        meses_base = len(df_base_median_A[df_base_median_A['Saldo'] > 1.0])
+        meses_actual = len(df_median_A[df_median_A['Saldo'] > 1.0])
+        meses_ahorrados = max(0, meses_base - meses_actual)
+        
+        a_fin = meses_actual // 12
+        m_fin = meses_actual % 12
+        txt_duracion = f"{a_fin} años y {m_fin} meses" if m_fin > 0 else f"{a_fin} años"
+
+        a_save = meses_ahorrados // 12
+        m_save = meses_ahorrados % 12
+        
+        if 'PLAZO' in tipo_reduc:
+            txt_tiempo = f"-{a_save} años y {m_save} meses" if a_save > 0 else f"-{m_save} meses"
+        else:
+            txt_tiempo = "Baja cuota (mismo plazo)"
+            txt_duracion = f"{meses_base // 12} años"
+        
+        ahorro_int = np.median(kpis_ahorro_A)
+    else:
+        meses_base = len(df_median_A[df_median_A['Saldo'] > 1.0])
+        txt_duracion = f"{meses_base // 12} años"
+        txt_tiempo = "Sin cambios"
+        ahorro_int = 0
+
+    st.markdown("### Resumen")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Cuota Inicial", f"{cuota_ini_A:,.2f} €", f"{df_median_A.iloc[idx_ref]['Tasa']:.2f}% TIN")
+    
+    val_int = df_median_A['Intereses'].sum()
+    val_seg = df_median_A['Seguros'].sum()
+    val_tot = val_int + val_seg
+    
+    k2.metric("Coste Total", f"{val_tot:,.0f} €", delta_color="inverse")
+    k2.caption(f"🏦 Int: {val_int:,.0f} € | 🛡️ Seg: {val_seg:,.0f} €")
+    k3.metric("Plazo Final", txt_duracion, delta_color="off")
+    k4.metric("Ahorro", f"{ahorro_int:,.0f} €", txt_tiempo)
+    
+    st.markdown("---")
+    
+    # PESTAÑAS INDIVIDUAL (4 PESTAÑAS TAMBIÉN)
+    tabs = st.tabs(["Evolución", "Amortización", "Patrimonio", "Riesgo"])
+
+    with tabs[0]:
+        fig2 = px.line(df_median_A, x='Mes', y='Cuota')
+        fig2.update_traces(line_color='#d9534f', line_width=2.5)
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    with tabs[1]:
+        c_a1, c_a2 = st.columns(2)
+        with c_a1:
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=df_base_median_A['Intereses'].cumsum(), name='Base', line=dict(color='gray', dash='dash')))
+            fig3.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Intereses'].cumsum(), name='Con Amort', line=dict(color='#d9534f', width=3)))
+            st.plotly_chart(fig3, use_container_width=True)
+        with c_a2:
+            fig4 = go.Figure()
+            fig4.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=df_base_median_A['Saldo'], name='Base', line=dict(color='gray', dash='dash')))
+            fig4.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Saldo'], fill='tozeroy', name='Real', line=dict(color='#5cb85c')))
+            st.plotly_chart(fig4, use_container_width=True)
+
+    with tabs[2]:
+        fig5 = go.Figure()
+        g_base = df_base_median_A['Cuota'] + coste_mes_seguros_A + total_gastos
+        ah_base = ahorro_inicial + (ingresos - g_base).cumsum()
+        pat_base = ah_base + (precio_vivienda - df_base_median_A['Saldo'])
+        fig5.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=pat_base, name='Base', line=dict(color='gray', dash='dot')))
+        fig5.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Patrimonio'], name='Actual', line=dict(color='#6f42c1', width=3)))
+        st.plotly_chart(fig5, use_container_width=True)
+
+    with tabs[3]:
+        st.subheader("Riesgo de Tipo de Interés")
+        if n_sims < 10:
+            st.warning("Selecciona 'Monte Carlo' en la configuración para ver el riesgo.")
+        else:
+            p5, p95 = np.percentile(kpis_int_A, [5, 95])
+            fig_h = px.histogram(x=kpis_int_A, nbins=30, labels={'x': 'Coste Total'}, color_discrete_sequence=['#8884d8'])
+            fig_h.add_vline(x=p5, line_dash="dash", line_color="green", annotation_text="Mejor")
+            fig_h.add_vline(x=p95, line_dash="dash", line_color="red", annotation_text="Peor")
+            st.plotly_chart(fig_h, use_container_width=True)
