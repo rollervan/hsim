@@ -150,27 +150,31 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
     return np.array(sims)
 
 # ==========================================
-# 2. INTERFAZ: SIDEBAR
+# 2. INTERFAZ: SIDEBAR (CORREGIDO)
 # ==========================================
 with st.sidebar:
     st.header("Configuración")
     
     comparar = st.checkbox("Comparar dos opciones", value=False)
     
-    # Inicialización
-    es_autopromotor = False
-    meses_carencia = 0
-    s_hogar_A, s_vida_A = 0, 0
-    s_hogar_B, s_vida_B = 0, 0
-    
-    with st.expander("Datos Económicos", expanded=not comparar):
+    # --- BLOQUE 1: DATOS GLOBALES DEL PROYECTO ---
+    with st.expander("Datos Económicos y Proyecto", expanded=True):
         ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
         ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
         precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
         capital_init_global = st.number_input("Importe Hipoteca (€)", value=180000, step=1000)
+        
+        st.markdown("---")
+        # MOVIDO AQUÍ: Configuración global de Autopromoción
+        es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=False)
+        meses_carencia = 0
+        if es_autopromotor:
+            meses_carencia = st.number_input("Meses de Carencia", value=12, min_value=1, max_value=36)
+            st.caption("Durante la carencia solo pagas intereses sobre lo dispuesto.")
 
     st.markdown("---")
     
+    # --- BLOQUE 2: DEFINICIÓN DE HIPOTECAS ---
     if comparar:
         st.subheader("Opción A vs Opción B")
         colA, colB = st.columns(2)
@@ -220,13 +224,10 @@ with st.sidebar:
             s_vida_B = st.number_input("Vida B", value=300, key="svB")
                 
     else:
-        st.subheader("Datos Préstamo")
+        # VISTA INDIVIDUAL (SIN COMPARAR)
+        st.subheader("Condiciones Préstamo")
         modo_A = st.selectbox("Modalidad", ["MIXTA", "VARIABLE", "FIJA"])
         
-        es_autopromotor = st.checkbox("Autopromoción", value=True)
-        if es_autopromotor:
-            meses_carencia = st.number_input("Meses carencia", value=11, min_value=1, max_value=36)
-            
         anios_A = st.number_input("Plazo (Años)", value=25, min_value=1)
         
         tipo_fijo_A = 0.0
@@ -247,6 +248,7 @@ with st.sidebar:
         s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=300)
         s_vida_A = st.number_input("Seguro Vida (€/año)", value=300)
 
+        # Variables dummy para B para evitar errores
         modo_B, anios_B = modo_A, anios_A
         tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
         s_hogar_B, s_vida_B = s_hogar_A, s_vida_A
@@ -260,6 +262,7 @@ with st.sidebar:
         g_gasolina = st.number_input("Transporte", value=100)
         g_otros = st.number_input("Otros", value=200)
 
+    # --- SIMULACIÓN EURIBOR ---
     caminos_eur = []
     n_sims = 1
     
@@ -280,25 +283,29 @@ with st.sidebar:
             else:
                 n_sims = 1
 
-        max_anios = max(anios_A, anios_B)
-        
-        if modo_prev == "Manual":
-            eur_list = []
-            for i in range(max_anios):
-                 eur_list.append(st.slider(f"Año {i + 1}", -1.0, 7.0, 3.2, key=f"e{i}"))
-            caminos_eur = [eur_list]
-        else:
-            caminos_eur = simular_vasicek(r0, theta, kappa, sigma, max_anios, n_sims)
+            max_anios = max(anios_A, anios_B)
+            
+            if modo_prev == "Manual":
+                eur_list = []
+                # Creamos 5 columnas para hacerlo compacto
+                cols_eur = st.columns(5)
+                for i in range(max_anios):
+                    with cols_eur[i % 5]:
+                        eur_list.append(st.number_input(f"A{i+1}", value=2.5, step=0.1, key=f"e{i}"))
+                caminos_eur = [eur_list]
+            else:
+                caminos_eur = simular_vasicek(r0, theta, kappa, sigma, max_anios, n_sims)
     else:
         caminos_eur = [[0.0] * max(anios_A, anios_B)]
         n_sims = 1
 
 # ==========================================
-# 3. VISUALIZACIÓN
+# 3. VISUALIZACIÓN Y BUCLE PRINCIPAL (CORREGIDO)
 # ==========================================
 
 st.title("Simulador de Hipoteca")
 
+# ... (Bloque de inputs de amortización anticipada se mantiene igual) ...
 with st.expander("Amortización Anticipada"):
     st.info("Capital extra anual (Máx. 10.000€)")
     cols_a = st.columns(4) 
@@ -319,41 +326,55 @@ df_median_A, df_median_B = None, None
 df_base_median_A = None 
 
 total_gastos = g_comida + g_suministros + g_gasolina + g_otros
-
 coste_mes_seguros_A = (s_hogar_A + s_vida_A) / 12
 coste_mes_seguros_B = (s_hogar_B + s_vida_B) / 12
 
 if n_sims > 100: prog_bar = st.progress(0)
 
+# --- INICIO DEL BUCLE DE CÁLCULO ---
 for i, camino in enumerate(caminos_eur):
+    
+    # CORRECCIÓN AQUÍ: Usamos las variables globales directamente
+    # Ya no forzamos a False si es comparar. Se asume que si es autopromoción,
+    # aplica a las dos opciones que estás comparando.
+    ap_flag = es_autopromotor 
+    carencia_val = meses_carencia 
+    
     # ESCENARIO A
-    ap_flag = es_autopromotor if not comparar else False
-    carencia_val = meses_carencia if not comparar else 0
+    df_A = calcular_hipoteca_core(
+        capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
+        modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val
+    )
     
-    # 1. Calculamos con amortización (REAL)
-    df_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val)
-    
-    # 2. Calculamos SIN amortización (BASE) para comparar siempre manzanas con manzanas
+    # Base A (sin amortización extra)
     if not comparar:
-        df_base_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
+        df_base_A = calcular_hipoteca_core(
+            capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
+            modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val
+        )
         kpis_ahorro_A.append(df_base_A['Intereses'].sum() - df_A['Intereses'].sum())
     
     df_A['Seguros'] = np.where(df_A['Saldo'] > 0, coste_mes_seguros_A, 0)
     gasto_tot_A = df_A['Cuota'] + df_A['Seguros'] + total_gastos
-    
     df_A['Ahorro_Liq'] = ahorro_inicial + (ingresos - gasto_tot_A).cumsum() - df_A['Amort_Extra'].cumsum()
     df_A['Patrimonio'] = df_A['Ahorro_Liq'] + (precio_vivienda - df_A['Saldo'])
     
     kpis_int_A.append(df_A['Intereses'].sum() + df_A['Seguros'].sum()) 
+    
     if not comparar:
         kpis_pat_A.append(df_A['Patrimonio'].iloc[-1])
         eur_matrix.append(camino)
 
     # ESCENARIO B
     if comparar:
-        df_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino, amort_list, tipo_reduc, False, 0)
+        # CORRECCIÓN: Ahora pasamos ap_flag y carencia_val también a la Opción B
+        df_B = calcular_hipoteca_core(
+            capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, 
+            modo_B, camino, amort_list, tipo_reduc, ap_flag, carencia_val
+        )
         df_B['Seguros'] = np.where(df_B['Saldo'] > 0, coste_mes_seguros_B, 0)
         kpis_int_B.append(df_B['Intereses'].sum() + df_B['Seguros'].sum())
+        
         if i == 0: df_median_B = df_B
 
     if i == 0: 
@@ -364,27 +385,41 @@ for i, camino in enumerate(caminos_eur):
 
 if n_sims > 100: prog_bar.empty()
 
-# MEDIANA
+# --- RECALCULAR MEDIANA Y MOSTRAR RESULTADOS ---
+# (Esta lógica se mantiene prácticamente igual, solo asegurando pasar las flags)
+
 idx_med = np.argsort(kpis_int_A)[len(kpis_int_A)//2]
 if n_sims > 1:
     camino_med = caminos_eur[idx_med]
-    ap_flag = es_autopromotor if not comparar else False
-    carencia_val = meses_carencia if not comparar else 0
+    # Recuperamos flags globales
+    ap_flag = es_autopromotor
+    carencia_val = meses_carencia
 
-    df_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, amort_list, tipo_reduc, ap_flag, carencia_val)
+    df_median_A = calcular_hipoteca_core(
+        capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
+        modo_A, camino_med, amort_list, tipo_reduc, ap_flag, carencia_val
+    )
     df_median_A['Seguros'] = np.where(df_median_A['Saldo'] > 0, coste_mes_seguros_A, 0)
+    # Recalculo patrimonio...
     df_median_A['Ahorro_Liq'] = ahorro_inicial + (ingresos - (df_median_A['Cuota'] + df_median_A['Seguros'] + total_gastos)).cumsum() - df_median_A['Amort_Extra'].cumsum()
     df_median_A['Patrimonio'] = df_median_A['Ahorro_Liq'] + (precio_vivienda - df_median_A['Saldo'])
     
     if not comparar:
-        df_base_median_A = calcular_hipoteca_core(capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, modo_A, camino_med, [0]*anios_A, 'PLAZO', ap_flag, carencia_val)
+        df_base_median_A = calcular_hipoteca_core(
+            capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
+            modo_A, camino_med, [0]*anios_A, 'PLAZO', ap_flag, carencia_val
+        )
 
     if comparar:
-        df_median_B = calcular_hipoteca_core(capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, modo_B, camino_med, amort_list, tipo_reduc, False, 0)
+        df_median_B = calcular_hipoteca_core(
+            capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, 
+            modo_B, camino_med, amort_list, tipo_reduc, ap_flag, carencia_val
+        )
         df_median_B['Seguros'] = np.where(df_median_B['Saldo'] > 0, coste_mes_seguros_B, 0)
 
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
+
 
 # ==========================================
 # CÁLCULO DE DURACIÓN EXACTA
