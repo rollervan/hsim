@@ -166,7 +166,7 @@ with st.sidebar:
         
         st.markdown("---")
         # MOVIDO AQUÍ: Configuración global de Autopromoción
-        es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=False)
+        es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=True)
         meses_carencia = 0
         if es_autopromotor:
             meses_carencia = st.number_input("Meses de Carencia", value=12, min_value=1, max_value=36)
