@@ -169,7 +169,7 @@ with st.sidebar:
         es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=True)
         meses_carencia = 0
         if es_autopromotor:
-            meses_carencia = st.number_input("Meses de Carencia", value=12, min_value=1, max_value=36)
+            meses_carencia = st.number_input("Meses de Carencia", value=11, min_value=1, max_value=36)
             st.caption("Durante la carencia solo pagas intereses sobre lo dispuesto.")
 
     st.markdown("---")
@@ -189,11 +189,11 @@ with st.sidebar:
             anios_fijos_A = 0
             
             if modo_A == "FIJA":
-                tipo_fijo_A = st.number_input("TIN A (%)", value=2.50, step=0.05, key="tfA")
+                tipo_fijo_A = st.number_input("TIN A (%)", value=2.15, step=0.05, key="tfA")
             elif modo_A == "VARIABLE":
                 diferencial_A = st.number_input("Dif. A (%)", value=0.55, step=0.05, key="dfA")
             elif modo_A == "MIXTA":
-                tipo_fijo_A = st.number_input("Fijo A (%)", value=2.25, step=0.05, key="mfaA")
+                tipo_fijo_A = st.number_input("Fijo A (%)", value=2.2, step=0.05, key="mfaA")
                 anios_fijos_A = st.number_input("Años Fijos A", value=7, key="myaA")
                 diferencial_A = st.number_input("Dif. Var A", value=0.55, step=0.05, key="mdaA")
             
@@ -211,11 +211,11 @@ with st.sidebar:
             anios_fijos_B = 0
             
             if modo_B == "FIJA":
-                tipo_fijo_B = st.number_input("TIN B (%)", value=2.75, step=0.05, key="tfB")
+                tipo_fijo_B = st.number_input("TIN B (%)", value=2.15, step=0.05, key="tfB")
             elif modo_B == "VARIABLE":
                 diferencial_B = st.number_input("Dif. B (%)", value=0.55, step=0.05, key="dfB")
             elif modo_B == "MIXTA":
-                tipo_fijo_B = st.number_input("Fijo B (%)", value=2.25, step=0.05, key="mfaB")
+                tipo_fijo_B = st.number_input("Fijo B (%)", value=2.20, step=0.05, key="mfaB")
                 anios_fijos_B = st.number_input("Años Fijos B", value=7, key="myaB")
                 diferencial_B = st.number_input("Dif. Var B", value=0.55, step=0.05, key="mdaB")
 
