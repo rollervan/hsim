@@ -42,29 +42,33 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     data = []
     mes_global = 1
     
-    # Ajustamos longitudes
+    # Ajustamos longitudes para asegurar que cubrimos todos los años
     puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * (max(0, int(anios) - len(euribor_puntos)))
     len_amort = len(amortizaciones)
+    
     if int(anios) > len_amort:
         puntos_amort = list(amortizaciones) + [0] * (int(anios) - len_amort)
     else:
         puntos_amort = list(amortizaciones[:int(anios)])
 
-    idx_var = 0 
+    # --- ELIMINADO idx_var = 0 ---
     
     for anio in range(int(anios)):
         if modo == 'FIJA':
             tasa_anual = tipo_fijo
         elif modo == 'VARIABLE':
+            # CORRECCIÓN: Usar directamente 'anio'
             tasa_anual = puntos_eur[anio] + diferencial
         else: # MIXTA
             if anio < anios_fijos:
                 tasa_anual = tipo_fijo
             else:
-                val_eur = puntos_eur[idx_var] if idx_var < len(puntos_eur) else puntos_eur[-1]
+                # CORRECCIÓN IMPORTANTE:
+                # Usamos 'anio' para coger el Euríbor correspondiente a ese momento temporal real.
+                # Antes usábamos idx_var que reiniciaba la curva del euríbor a t=0.
+                val_eur = puntos_eur[anio] 
                 tasa_anual = val_eur + diferencial
-                idx_var += 1
-        
+                
         tasa_mensual = (max(0, tasa_anual) / 100) / 12
         
         for m in range(12):
@@ -81,11 +85,9 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                 if es_autopromotor and mes_global == meses_carencia + 1:
                      saldo_real = round(float(capital), 2)
                 
-                # CORRECCIÓN DE PRECISIÓN: Si saldo es menor a 1 euro, liquidamos
                 if saldo_real <= 1.0:
                     saldo_real = 0; cuota = 0; interes_m = 0; capital_m = 0
                 else:
-                    # CORRECCIÓN 1: Comparación flexible de string para detectar "PLAZO"
                     base_calc = saldo_teorico if 'PLAZO' in tipo_reduc else saldo_real
                     if base_calc < saldo_real: base_calc = saldo_real
                     
@@ -121,21 +123,15 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
             
             # APLICACIÓN DE AMORTIZACIÓN ANTICIPADA
             if not en_periodo_carencia:
-                # Solo aplicamos si hay saldo vivo
                 if m == 11 and saldo_real > 1.0 and puntos_amort[anio] > 0:
                     ejec = round(min(puntos_amort[anio], saldo_real), 2)
                     saldo_real = round(saldo_real - ejec, 2)
                     
-                    # Si reducimos plazo, el saldo teórico no cambia
-                    # Si reducimos cuota, el saldo teórico baja para recalcular cuota siguiente
-                    # CORRECCIÓN 2: Comparación flexible para detectar "CUOTA"
                     if 'CUOTA' in tipo_reduc: 
                         saldo_teorico = saldo_real
                         
                     data[-1]['Amort_Extra'] = ejec
                     data[-1]['Capital'] = round(data[-1]['Capital'] + ejec, 2)
-                    
-                    # CORRECCIÓN 3: Actualizar el saldo en el registro actual para evitar desfase de 1 mes
                     data[-1]['Saldo'] = saldo_real
             
             mes_global += 1
@@ -575,7 +571,10 @@ else:
             st.warning("Sube las simulaciones para ver el riesgo.")
         else:
             st.subheader("Distribución de Coste (Intereses)")
-            p5, p50, p95 = np.percentile(kpis_int_A, [5, 50, 95])
+            # Bloque ajustado
+            p5, p95 = np.percentile(kpis_int_A, [5, 95])
+            # En lugar de usar la mediana estadística pura, usamos el valor del escenario que hemos pintado
+            p50 = coste_A # coste_A viene calculado de df_median_A
             
             c_r1, c_r2 = st.columns([2, 1])
             with c_r1:
