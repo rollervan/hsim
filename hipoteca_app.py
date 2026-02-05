@@ -241,13 +241,13 @@ with st.sidebar:
         elif modo_A == "VARIABLE":
             diferencial_A = c1.number_input("Diferencial (%)", value=0.55, step=0.05)
         elif modo_A == "MIXTA":
-            tipo_fijo_A = c1.number_input("Fijo (%)", value=2.25, step=0.05)
+            tipo_fijo_A = c1.number_input("Fijo (%)", value=2.2, step=0.05)
             anios_fijos_A = c2.number_input("Años Fijos", value=7)
             diferencial_A = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
         
         st.markdown("**Seguros Vinculados**")
-        s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=300)
-        s_vida_A = st.number_input("Seguro Vida (€/año)", value=300)
+        s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=280)
+        s_vida_A = st.number_input("Seguro Vida (€/año)", value=188)
 
         # Variables dummy para B para evitar errores
         modo_B, anios_B = modo_A, anios_A
