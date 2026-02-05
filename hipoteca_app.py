@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import io
 
 # ==========================================
 # CONFIGURACIÓN DE PÁGINA
@@ -626,43 +627,79 @@ else:
             st.plotly_chart(fig4, use_container_width=True)
 
     with tabs[2]:
-        st.subheader("Patrimonio Neto")
-        fig5 = go.Figure()
-        g_base = df_base_median_A['Cuota'] + coste_mes_seguros_A + total_gastos
-        ah_base = ahorro_inicial + (ingresos - g_base).cumsum()
-        pat_base = ah_base + (precio_vivienda - df_base_median_A['Saldo'])
+        st.subheader("Tablas de Amortización Detalladas")
         
-        fig5.add_trace(go.Scatter(x=df_base_median_A['Mes'], y=pat_base, name='Base', line=dict(color='gray', dash='dot')))
-        fig5.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Patrimonio'], name='Actual', line=dict(color='#6f42c1', width=3)))
-        fig5.update_layout(template='plotly_white', height=400, hovermode="x unified")
-        st.plotly_chart(fig5, use_container_width=True)
+        # 1. Definir columnas exactas para limpiar la visualización
+        cols_ver = ['Año', 'Mes', 'Tasa', 'Cuota', 'Intereses', 'Capital', 'Amort_Extra', 'Saldo']
+        
+        # 2. Función para generar el Excel en memoria
+        def to_excel(df):
+            output = io.BytesIO()
+            # Usamos 'xlsxwriter' si está instalado, si no pandas usa el default (openpyxl)
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Amortización')
+                # Ajuste básico de formato (opcional)
+                workbook = writer.book
+                worksheet = writer.sheets['Amortización']
+                format1 = workbook.add_format({'num_format': '#,##0.00'})
+                worksheet.set_column('D:H', 12, format1) # Formato moneda columnas D a H
+            return output.getvalue()
 
-    with tabs[3]:
-        if modo_A == "FIJA":
-            st.success("Coste fijo. No hay riesgo de tipo de interés.")
-        elif n_sims < 10:
-            st.warning("Sube las simulaciones para ver el riesgo.")
-        else:
-            st.subheader("Distribución de Coste (Intereses)")
-            # Bloque ajustado
-            p5, p95 = np.percentile(kpis_int_A, [5, 95])
-            # En lugar de usar la mediana estadística pura, usamos el valor del escenario que hemos pintado
-            p50 = coste_A # coste_A viene calculado de df_median_A
+        # --- TABLA OPCIÓN A ---
+        st.markdown("#### 🔹 Opción A")
+        
+        # Filtramos y copiamos para no tocar el original
+        df_export_A = df_median_A[cols_ver].copy()
+        
+        # Botón de descarga A
+        col_d1, col_d2 = st.columns([1, 4])
+        with col_d1:
+            st.download_button(
+                label="📥 Descargar Excel A",
+                data=to_excel(df_export_A),
+                file_name='simulacion_hipoteca_A.xlsx',
+                mime='application/vnd.ms-excel'
+            )
+        
+        st.dataframe(
+            df_export_A.style.format({
+                'Tasa': '{:.3f}%', 
+                'Cuota': '{:,.2f}', 
+                'Intereses': '{:,.2f}', 
+                'Capital': '{:,.2f}', 
+                'Amort_Extra': '{:,.2f}', 
+                'Saldo': '{:,.2f}'
+            }), 
+            use_container_width=True, 
+            height=300
+        )
+
+        # --- TABLA OPCIÓN B (Si existe) ---
+        if comparar:
+            st.markdown("---")
+            st.markdown("#### 🔸 Opción B")
             
-            c_r1, c_r2 = st.columns([2, 1])
-            with c_r1:
-                fig_h = px.histogram(x=kpis_int_A, nbins=30, labels={'x': 'Total Intereses'}, color_discrete_sequence=['#8884d8'])
-                fig_h.add_vline(x=p5, line_dash="dash", line_color="green", annotation_text="Mejor")
-                fig_h.add_vline(x=p95, line_dash="dash", line_color="red", annotation_text="Peor")
-                fig_h.update_layout(template='plotly_white', height=400, showlegend=False)
-                st.plotly_chart(fig_h, use_container_width=True)
-            with c_r2:
-                st.markdown(f"""
-                <div style="background-color:#f8f9fa; padding:15px; border-radius:5px;">
-                <b>Mejor (P10):</b> {np.percentile(kpis_int_A, 10):,.0f}€<br>
-                <b>Mediana:</b> {p50:,.0f}€<br>
-                <b>Peor (P90):</b> {np.percentile(kpis_int_A, 90):,.0f}€<br>
-                <hr>
-                <b>Extremo (P95):</b> {p95:,.0f}€
-                </div>
-                """, unsafe_allow_html=True)
+            df_export_B = df_median_B[cols_ver].copy()
+            
+            # Botón de descarga B
+            col_db1, col_db2 = st.columns([1, 4])
+            with col_db1:
+                st.download_button(
+                    label="📥 Descargar Excel B",
+                    data=to_excel(df_export_B),
+                    file_name='simulacion_hipoteca_B.xlsx',
+                    mime='application/vnd.ms-excel'
+                )
+
+            st.dataframe(
+                df_export_B.style.format({
+                    'Tasa': '{:.3f}%', 
+                    'Cuota': '{:,.2f}', 
+                    'Intereses': '{:,.2f}', 
+                    'Capital': '{:,.2f}', 
+                    'Amort_Extra': '{:,.2f}', 
+                    'Saldo': '{:,.2f}'
+                }), 
+                use_container_width=True, 
+                height=300
+            )
