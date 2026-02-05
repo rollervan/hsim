@@ -204,7 +204,7 @@ with st.sidebar:
             st.caption("Seguros y Gastos A")
             s_hogar_A = st.number_input("Hogar A (€/año)", value=280, key="shA")
             s_vida_A = st.number_input("Vida A (€/año)", value=188, key="svA")
-            apertura_A = st.number_input("Apertura A (%)", value=0.0, step=0.1, key="apA")
+            apertura_A = st.number_input("Apertura A (%)", value=0.4, step=0.1, key="apA")
             cert_A = 0.0
             if es_autopromotor:
                 cert_A = st.number_input("Certif. A (€/mes)", value=30.0, key="ctA")
