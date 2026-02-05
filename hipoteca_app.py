@@ -424,15 +424,12 @@ coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum()
 # ==========================================
 # CÁLCULO DE DURACIÓN EXACTA Y COMPARATIVA
 # ==========================================
-# Contamos cuántos meses hay con saldo > 1.0 (para evitar errores de decimales)
 meses_reales_A = len(df_median_A[df_median_A['Saldo'] > 1.0])
 
-# Obtenemos cuota inicial correcta
 idx_ref = 0 if not (es_autopromotor and not comparar) else meses_carencia
 if idx_ref >= len(df_median_A): idx_ref = 0
 cuota_ini_A = df_median_A.iloc[idx_ref]['Cuota']
 
-# Función auxiliar para formatear tiempo
 def fmt_t(m): 
     a = m // 12
     r = m % 12
@@ -445,62 +442,62 @@ if comparar:
     meses_reales_B = len(df_median_B[df_median_B['Saldo'] > 1.0])
     cuota_ini_B = df_median_B.iloc[0]['Cuota']
 
-    st.markdown("### 🆚 Resultados Comparativa (A vs B)")
+    st.markdown("### 🆚 Resultados Comparativa")
     
-    # LÓGICA DE VISUALIZACIÓN CLARA
-    col_c1, col_c2, col_c3 = st.columns(3)
-    
-    # 1. COSTE TOTAL
+    # Lógica de Ganador
     dif_coste = coste_B - coste_A
-    # Si B cuesta más que A -> Positivo -> Rojo (Inverse)
-    # Si B cuesta menos que A -> Negativo -> Verde (Inverse)
-    lbl_delta_coste = f"{abs(dif_coste):,.0f} € {'más' if dif_coste > 0 else 'menos'} que A"
+    ahorro = abs(dif_coste)
     
-    col_c1.metric(
-        label="Coste Total (Int + Seguros)", 
-        value=f"A: {coste_A:,.0f} €", 
-        delta=f"{dif_coste:,.0f} € ({'B es más cara' if dif_coste > 0 else 'B es más barata'})",
-        delta_color="inverse"
-    )
-    col_c1.caption(f"**Opción B:** {coste_B:,.0f} €")
-    
-    # 2. DURACIÓN REAL
-    dif_meses = meses_reales_B - meses_reales_A
-    lbl_delta_tiempo = f"{abs(dif_meses)} meses {'más' if dif_meses > 0 else 'menos'} que A"
-    
-    col_c2.metric(
-        label="Tiempo hasta fin hipoteca", 
-        value=f"A: {fmt_t(meses_reales_A)}", 
-        delta=f"{dif_meses} meses ({'B tarda más' if dif_meses > 0 else 'B termina antes'})",
-        delta_color="inverse"
-    )
-    col_c2.caption(f"**Opción B:** {fmt_t(meses_reales_B)}")
-    
-    # 3. CUOTA INICIAL
-    dif_cuota = cuota_ini_B - cuota_ini_A
-    
-    col_c3.metric(
-        label="Cuota Mensual Inicial", 
-        value=f"A: {cuota_ini_A:,.0f} €", 
-        delta=f"{dif_cuota:,.0f} € ({'B es mayor' if dif_cuota > 0 else 'B es menor'})",
-        delta_color="inverse"
-    )
-    col_c3.caption(f"**Opción B:** {cuota_ini_B:,.0f} €")
-    
-    # GANADOR VISUAL
-    st.markdown("---")
+    # 1. MENSAJE CLARO DE GANADOR (ENCABEZADO)
     if dif_coste > 1000:
-        st.success(f"🏆 **La Opción A es económicamente mejor**: Ahorras **{dif_coste:,.0f} €** en total respecto a la B.")
+        st.success(f"🏆 **La Opción A es mejor**: Te ahorras **{ahorro:,.0f} €** respecto a la B.")
     elif dif_coste < -1000:
-        st.success(f"🏆 **La Opción B es económicamente mejor**: Ahorras **{abs(dif_coste):,.0f} €** en total respecto a la A.")
+        st.success(f"🏆 **La Opción B es mejor**: Te ahorras **{ahorro:,.0f} €** respecto a la A.")
     else:
-        st.info("⚖️ **Empate técnico**: La diferencia de coste total es irrelevante (< 1.000 €).")
+        st.info("⚖️ **Empate técnico**: La diferencia es menor a 1.000 €.")
+    
+    st.markdown("---")
+
+    # 2. MÉTRICAS DESGLOSADAS (A | B | DIFERENCIA)
+    # Usamos 3 columnas para evitar confusiones
+    k1, k2, k3 = st.columns(3)
+    
+    # COLUMNA A
+    k1.metric("Opción A (Tu elección)", f"{coste_A:,.0f} €")
+    
+    # COLUMNA B
+    k2.metric("Opción B (Comparativa)", f"{coste_B:,.0f} €")
+    
+    # COLUMNA DIFERENCIA (El semáforo)
+    # Si dif_coste > 0 significa que B es mayor (A ahorra) -> Verde
+    # Si dif_coste < 0 significa que B es menor (B ahorra) -> Verde (para B)
+    
+    if dif_coste > 0:
+        k3.metric("Diferencia", f"{ahorro:,.0f} €", "Ahorro con A", delta_color="normal")
+    else:
+        k3.metric("Diferencia", f"{ahorro:,.0f} €", "Ahorro con B", delta_color="normal")
+
+    # SEGUNDA FILA: TIEMPO Y CUOTA
+    st.markdown("<br>", unsafe_allow_html=True) # Espacio
+    t1, t2, t3 = st.columns(3)
+    
+    t1.metric("Plazo Real A", fmt_t(meses_reales_A))
+    t2.metric("Plazo Real B", fmt_t(meses_reales_B))
+    
+    dif_meses = meses_reales_B - meses_reales_A
+    if dif_meses > 0:
+        t3.metric("Diferencia Tiempo", f"{abs(dif_meses)} meses", "A termina antes", delta_color="normal")
+    elif dif_meses < 0:
+        t3.metric("Diferencia Tiempo", f"{abs(dif_meses)} meses", "B termina antes", delta_color="normal")
+    else:
+        t3.metric("Diferencia Tiempo", "Igual", "Mismo plazo", delta_color="off")
 
     st.markdown("---")
     
     tabs = st.tabs(["Evolución Deuda", "Costes Acumulados", "Tabla de Datos"])
     
     with tabs[0]:
+        # ... (código gráficos sigue igual)
         fig_s = go.Figure()
         fig_s.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Saldo'], fill='tozeroy', name='Opción A', line=dict(color='#0055aa')))
         fig_s.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Saldo'], name='Opción B', line=dict(color='#ff7f0e', dash='dash', width=3)))
