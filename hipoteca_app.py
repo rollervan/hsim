@@ -198,8 +198,8 @@ with st.sidebar:
                 diferencial_A = st.number_input("Dif. Var A", value=0.55, step=0.05, key="mdaA")
             
             st.caption("Seguros A (€/año)")
-            s_hogar_A = st.number_input("Hogar A", value=300, key="shA")
-            s_vida_A = st.number_input("Vida A", value=300, key="svA")
+            s_hogar_A = st.number_input("Hogar A", value=280, key="shA")
+            s_vida_A = st.number_input("Vida A", value=188, key="svA")
 
         with colB:
             st.markdown("#### Opción B")
@@ -220,8 +220,8 @@ with st.sidebar:
                 diferencial_B = st.number_input("Dif. Var B", value=0.55, step=0.05, key="mdaB")
 
             st.caption("Seguros B (€/año)")
-            s_hogar_B = st.number_input("Hogar B", value=300, key="shB")
-            s_vida_B = st.number_input("Vida B", value=300, key="svB")
+            s_hogar_B = st.number_input("Hogar B", value=380, key="shB")
+            s_vida_B = st.number_input("Vida B", value=384, key="svB")
                 
     else:
         # VISTA INDIVIDUAL (SIN COMPARAR)
