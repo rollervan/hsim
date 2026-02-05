@@ -483,7 +483,7 @@ if comparar:
 
     st.markdown("---")
     
-    # DEFINICIÓN DE PESTAÑAS (INCLUYENDO LA TUYA Y LA DE RIESGO)
+    # PESTAÑAS COMPARATIVA
     tabs = st.tabs(["Evolución Deuda", "Costes Acumulados", "Tabla de Datos", "Análisis de Riesgo"])
     
     with tabs[0]:
@@ -506,14 +506,11 @@ if comparar:
             st.plotly_chart(fig_c, use_container_width=True)
             
     with tabs[2]:
-        # --- AQUÍ ESTÁ TU CÓDIGO DE TABLAS ---
         st.subheader("Tablas de Amortización Detalladas")
-        
         cols_ver = ['Año', 'Mes', 'Tasa', 'Cuota', 'Intereses', 'Capital', 'Amort_Extra', 'Saldo']
         
         def to_excel(df):
             output = io.BytesIO()
-            # PROTECCIÓN: Intenta usar xlsxwriter (tu código), si falla usa el default para no romper la app
             try:
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False, sheet_name='Amortización')
@@ -522,27 +519,16 @@ if comparar:
                     format1 = workbook.add_format({'num_format': '#,##0.00'})
                     worksheet.set_column('D:H', 12, format1)
             except ModuleNotFoundError:
-                # Fallback silencioso si no está instalado
                 with pd.ExcelWriter(output) as writer:
                     df.to_excel(writer, index=False, sheet_name='Amortización')
             return output.getvalue()
 
         st.markdown("#### 🔹 Opción A")
         df_export_A = df_median_A[cols_ver].copy()
-        
         col_d1, col_d2 = st.columns([1, 4])
         with col_d1:
-            st.download_button(
-                label="📥 Descargar Excel A",
-                data=to_excel(df_export_A),
-                file_name='simulacion_hipoteca_A.xlsx',
-                mime='application/vnd.ms-excel'
-            )
-        
-        st.dataframe(
-            df_export_A.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), 
-            use_container_width=True, height=300
-        )
+            st.download_button("📥 Excel A", data=to_excel(df_export_A), file_name='hipoteca_A.xlsx', mime='application/vnd.ms-excel')
+        st.dataframe(df_export_A.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), use_container_width=True, height=300)
 
         if comparar:
             st.markdown("---")
@@ -550,19 +536,10 @@ if comparar:
             df_export_B = df_median_B[cols_ver].copy()
             col_db1, col_db2 = st.columns([1, 4])
             with col_db1:
-                st.download_button(
-                    label="📥 Descargar Excel B",
-                    data=to_excel(df_export_B),
-                    file_name='simulacion_hipoteca_B.xlsx',
-                    mime='application/vnd.ms-excel'
-                )
-            st.dataframe(
-                df_export_B.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), 
-                use_container_width=True, height=300
-            )
+                st.download_button("📥 Excel B", data=to_excel(df_export_B), file_name='hipoteca_B.xlsx', mime='application/vnd.ms-excel')
+            st.dataframe(df_export_B.style.format({'Tasa': '{:.3f}%', 'Cuota': '{:,.2f}', 'Intereses': '{:,.2f}', 'Capital': '{:,.2f}', 'Amort_Extra': '{:,.2f}', 'Saldo': '{:,.2f}'}), use_container_width=True, height=300)
 
     with tabs[3]:
-        # --- AQUÍ ESTÁ EL ANÁLISIS DE RIESGO ---
         st.subheader("Distribución de Coste Total")
         if n_sims < 10:
             st.warning("⚠️ Selecciona 'Monte Carlo' en la barra lateral con +50 simulaciones para ver el riesgo.")
@@ -584,16 +561,10 @@ else:
         a_fin = meses_actual // 12
         m_fin = meses_actual % 12
         txt_duracion = f"{a_fin} años y {m_fin} meses" if m_fin > 0 else f"{a_fin} años"
-
+        
         a_save = meses_ahorrados // 12
         m_save = meses_ahorrados % 12
-        
-        if 'PLAZO' in tipo_reduc:
-            txt_tiempo = f"-{a_save} años y {m_save} meses" if a_save > 0 else f"-{m_save} meses"
-        else:
-            txt_tiempo = "Baja cuota (mismo plazo)"
-            txt_duracion = f"{meses_base // 12} años"
-        
+        txt_tiempo = f"-{a_save} años y {m_save} meses" if 'PLAZO' in tipo_reduc and (a_save>0 or m_save>0) else "Baja cuota"
         ahorro_int = np.median(kpis_ahorro_A)
     else:
         meses_base = len(df_median_A[df_median_A['Saldo'] > 1.0])
@@ -616,13 +587,40 @@ else:
     
     st.markdown("---")
     
-    # PESTAÑAS INDIVIDUAL (4 PESTAÑAS TAMBIÉN)
+    # PESTAÑAS INDIVIDUAL
     tabs = st.tabs(["Evolución", "Amortización", "Patrimonio", "Riesgo"])
 
+    # --- PESTAÑA 0: GRÁFICO EURIBOR + CUOTA (RECUPERADO) ---
     with tabs[0]:
-        fig2 = px.line(df_median_A, x='Mes', y='Cuota')
-        fig2.update_traces(line_color='#d9534f', line_width=2.5)
-        st.plotly_chart(fig2, use_container_width=True)
+        c_e1, c_e2 = st.columns(2)
+        with c_e1:
+            st.subheader("Euríbor Estimado")
+            if modo_A == "FIJA":
+                st.info("Hipoteca Fija: El tipo de interés no cambia.")
+            else:
+                # Recuperamos la matriz de simulaciones del bucle principal
+                mat = np.array(eur_matrix)
+                if len(mat) > 0:
+                    p10, p50, p90 = np.percentile(mat, [10, 50, 90], axis=0)
+                    x_ax = np.arange(1, len(p50)+1)
+                    
+                    fig_eur = go.Figure()
+                    fig_eur.add_trace(go.Scatter(x=x_ax, y=p90, mode='lines', line=dict(width=0), showlegend=False))
+                    fig_eur.add_trace(go.Scatter(x=x_ax, y=p10, mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,100,250,0.15)', name='Rango Probable'))
+                    fig_eur.add_trace(go.Scatter(x=x_ax, y=p50, mode='lines', line=dict(color='#0055aa', width=3), name='Mediana'))
+                    fig_eur.update_layout(template='plotly_white', height=350, margin=dict(t=30), legend=dict(orientation="h", y=1.1))
+                    st.plotly_chart(fig_eur, use_container_width=True)
+                else:
+                    st.info("No hay simulaciones de Euríbor disponibles.")
+
+        with c_e2:
+            st.subheader("Cuota Mensual")
+            fig2 = px.line(df_median_A, x='Mes', y='Cuota')
+            fig2.update_traces(line_color='#d9534f', line_width=2.5)
+            if es_autopromotor:
+                 fig2.add_vline(x=meses_carencia, line_dash="dot", annotation_text="Fin Carencia")
+            fig2.update_layout(template='plotly_white', height=350)
+            st.plotly_chart(fig2, use_container_width=True)
     
     with tabs[1]:
         c_a1, c_a2 = st.columns(2)
