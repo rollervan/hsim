@@ -371,16 +371,17 @@ for i, camino in enumerate(caminos_eur):
     # ESCENARIO A
     df_A = calcular_hipoteca_core(
         capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
-        modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val
+        modo_A, camino, amort_list, tipo_reduc, ap_flag, carencia_val, 
+        apertura_A, cert_A # <--- NUEVOS ARGUMENTOS
     )
     
     # Base A (sin amortización extra)
     if not comparar:
         df_base_A = calcular_hipoteca_core(
             capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A, 
-            modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val
+            modo_A, camino, [0]*anios_A, 'PLAZO', ap_flag, carencia_val,
+            apertura_A, cert_A # <--- NUEVOS ARGUMENTOS
         )
-        kpis_ahorro_A.append(df_base_A['Intereses'].sum() - df_A['Intereses'].sum())
     
     df_A['Seguros'] = np.where(df_A['Saldo'] > 0, coste_mes_seguros_A, 0)
     gasto_tot_A = df_A['Cuota'] + df_A['Seguros'] + total_gastos
@@ -395,10 +396,10 @@ for i, camino in enumerate(caminos_eur):
 
     # ESCENARIO B
     if comparar:
-        # CORRECCIÓN: Ahora pasamos ap_flag y carencia_val también a la Opción B
         df_B = calcular_hipoteca_core(
             capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B, 
-            modo_B, camino, amort_list, tipo_reduc, ap_flag, carencia_val
+            modo_B, camino, amort_list, tipo_reduc, ap_flag, carencia_val,
+            apertura_B, cert_B # <--- NUEVOS ARGUMENTOS
         )
         df_B['Seguros'] = np.where(df_B['Saldo'] > 0, coste_mes_seguros_B, 0)
         kpis_int_B.append(df_B['Intereses'].sum() + df_B['Seguros'].sum())
