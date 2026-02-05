@@ -494,40 +494,63 @@ if comparar:
     with tabs[1]:
         c_a1, c_a2 = st.columns(2)
         with c_a1:
-            st.subheader("Coste Acumulado (Todo Incluido)")
+            st.subheader("Desglose de Costes Acumulados")
             fig_i = go.Figure()
             
-            # TOTAL A (Incluye gastos fijos)
+            # --- OPCIÓN A (AZULES) ---
+            # 1. TOTAL (Gorda)
             fig_i.add_trace(go.Scatter(
                 x=df_median_A['Mes'], 
                 y=(df_median_A['Intereses'] + df_median_A['Seguros'] + df_median_A['Gastos_Fijos']).cumsum(), 
-                name='TOTAL A', 
+                name='TOTAL A (Todo incluido)', 
                 line=dict(color='#0055aa', width=3)
             ))
-            # SOLO SEGUROS A
+            # 2. INTERESES (Fina) -> AHORA SÍ APARECEN
+            fig_i.add_trace(go.Scatter(
+                x=df_median_A['Mes'], 
+                y=df_median_A['Intereses'].cumsum(), 
+                name='Solo Intereses A', 
+                line=dict(color='#4a90e2', width=1.5)
+            ))
+            # 3. SEGUROS (Punteada)
             fig_i.add_trace(go.Scatter(
                 x=df_median_A['Mes'], 
                 y=df_median_A['Seguros'].cumsum(), 
                 name='Seguros A', 
-                line=dict(color='#0055aa', dash='dot', width=1)
+                line=dict(color='#4a90e2', dash='dot', width=1.5)
             ))
-            
-            # TOTAL B (Incluye gastos fijos)
+
+            # --- OPCIÓN B (NARANJAS) ---
+            # 1. TOTAL (Gorda)
             fig_i.add_trace(go.Scatter(
                 x=df_median_B['Mes'], 
                 y=(df_median_B['Intereses'] + df_median_B['Seguros'] + df_median_B['Gastos_Fijos']).cumsum(), 
-                name='TOTAL B', 
+                name='TOTAL B (Todo incluido)', 
                 line=dict(color='#ff7f0e', width=3, dash='dash')
             ))
-            # SOLO SEGUROS B
+            # 2. INTERESES (Fina) -> AHORA SÍ APARECEN
+            fig_i.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=df_median_B['Intereses'].cumsum(), 
+                name='Solo Intereses B', 
+                line=dict(color='#ffbb78', width=1.5, dash='dash')
+            ))
+            # 3. SEGUROS (Punteada)
             fig_i.add_trace(go.Scatter(
                 x=df_median_B['Mes'], 
                 y=df_median_B['Seguros'].cumsum(), 
                 name='Seguros B', 
-                line=dict(color='#ff7f0e', dash='dot', width=1)
+                line=dict(color='#ffbb78', dash='dot', width=1.5)
             ))
 
-            fig_i.update_layout(template='plotly_white', height=400, legend=dict(orientation="h", y=1.1), hovermode="x unified")
+            fig_i.update_layout(
+                template='plotly_white', 
+                height=450, 
+                legend=dict(orientation="h", y=1.1), 
+                hovermode="x unified",
+                yaxis_title="Euros Acumulados (€)",
+                title="Evolución del Gasto Real"
+            )
             st.plotly_chart(fig_i, use_container_width=True)
             
         with c_a2:
@@ -535,6 +558,12 @@ if comparar:
             fig_c = go.Figure()
             fig_c.add_trace(go.Scatter(x=df_median_A['Mes'], y=df_median_A['Cuota'], name='Cuota A', line=dict(color='#0055aa')))
             fig_c.add_trace(go.Scatter(x=df_median_B['Mes'], y=df_median_B['Cuota'], name='Cuota B', line=dict(color='#ff7f0e', dash='dash')))
+            
+            # Añadimos marca visual de fin de carencia si es autopromoción
+            if es_autopromotor:
+                fig_c.add_vline(x=meses_carencia, line_dash="dot", annotation_text="Fin Carencia", line_color="gray")
+                
+            fig_c.update_layout(template='plotly_white', height=450, legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig_c, use_container_width=True)
             
     with tabs[2]:
