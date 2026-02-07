@@ -3,225 +3,273 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Simulador Montecarlo Winvest", layout="wide", page_icon="📈")
+# --- 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS ---
+st.set_page_config(
+    page_title="Simulador de Riesgo Hipotecario",
+    layout="wide",
+    page_icon="🏠"
+)
 
-# --- ESTILOS CSS ---
+# Estilos CSS para imitar la estética limpia de Fintech/Banca
 st.markdown("""
     <style>
-    .stApp { background-color: #f8f9fa; }
-    .risk-high { color: #e74c3c; font-weight: bold; }
-    .risk-low { color: #27ae60; font-weight: bold; }
-    .big-stat { font-size: 1.5rem; font-weight: 600; }
+    .main { background-color: #f4f6f9; }
+    div[data-testid="metric-container"] {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    h1 { color: #1f2c3d; }
+    h3 { color: #34495e; }
+    .stButton>button {
+        width: 100%;
+        background-color: #2c3e50;
+        color: white;
+        font-weight: bold;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- MOTOR DE CÁLCULO MONTECARLO ---
+# --- 2. MOTOR MATEMÁTICO (MONTECARLO) ---
 
-def generar_trayectorias_euribor(n_simulaciones, n_meses, euribor_actual, media_largo_plazo, volatilidad, velocidad_reversion=0.15):
+def generar_euribor_vasicek(n_sims, n_meses, r0, media_long_term, kappa, sigma):
     """
-    Genera trayectorias de Euribor usando el modelo de Vasicek (Reversión a la media).
-    dr_t = a(b - r_t)dt + sigma * dW_t
+    Simula trayectorias del Euríbor usando el modelo de Vasicek.
+    r0: Euribor inicial
+    media_long_term: Hacia dónde tiende a ir el mercado
+    kappa: Velocidad de reversión a la media
+    sigma: Volatilidad (riesgo/oscilación)
     """
     dt = 1/12  # Pasos mensuales
-    tasas = np.zeros((n_simulaciones, n_meses))
-    tasas[:, 0] = euribor_actual
+    tasas = np.zeros((n_sims, n_meses))
+    tasas[:, 0] = r0
     
-    # Generamos los componentes aleatorios (Ruido Browniano)
-    shocks = np.random.normal(0, np.sqrt(dt), size=(n_simulaciones, n_meses))
+    # Pre-calcular ruido aleatorio para velocidad
+    shocks = np.random.normal(0, np.sqrt(dt), size=(n_sims, n_meses))
     
     for t in range(1, n_meses):
-        # Ecuación diferencial estocástica discretizada
-        drift = velocidad_reversion * (media_largo_plazo - tasas[:, t-1]) * dt
-        diffusion = volatilidad * shocks[:, t]
+        # Fórmula: dr = a(b-r)dt + sigma*dW
+        drift = kappa * (media_long_term - tasas[:, t-1]) * dt
+        diffusion = sigma * shocks[:, t]
         tasas[:, t] = tasas[:, t-1] + drift + diffusion
-        
-        # Suelo del Euribor (opcional, bancos suelen poner 0% si es negativo en variable pura, pero aquí dejamos flotar)
-        # tasas[:, t] = np.maximum(tasas[:, t], -0.5) 
-        
+    
     return tasas
 
-def calcular_cuota_vectorizada(principal, tasa_anual_vector, meses_restantes):
-    """Calcula la cuota mensual para un vector de tasas (numpy array)."""
-    r = tasa_anual_vector / 100 / 12
-    # Evitar división por cero
-    r = np.where(r == 0, 1e-9, r)
+def calcular_hipoteca_vectorizada(capital, plazo_anos, tipo_producto, params_producto, matriz_euribor):
+    """
+    Calcula la evolución de la cuota para 1.000 escenarios simultáneamente.
+    """
+    n_sims, n_meses = matriz_euribor.shape
     
-    numerador = principal * r * (1 + r)**meses_restantes
-    denominador = (1 + r)**meses_restantes - 1
-    return numerador / denominador
+    # 1. Construir matriz de Tipos de Interés Aplicables según producto
+    matriz_tasas_aplicables = np.zeros_like(matriz_euribor)
+    
+    diferencial = params_producto.get('diferencial', 0.0)
+    
+    if tipo_producto == "Variable":
+        matriz_tasas_aplicables = matriz_euribor + diferencial
+        
+    elif tipo_producto == "Mixta":
+        meses_fijos = params_producto.get('meses_fijos', 0)
+        tasa_fija = params_producto.get('tasa_fija', 0.0)
+        
+        # Llenar todo con variable primero
+        matriz_tasas_aplicables = matriz_euribor + diferencial
+        # Sobreescribir la parte fija
+        if meses_fijos > 0:
+            matriz_tasas_aplicables[:, :meses_fijos] = tasa_fija
 
-# --- INTERFAZ ---
+    elif tipo_producto == "Fija":
+        tasa_fija = params_producto.get('tasa_fija', 0.0)
+        matriz_tasas_aplicables[:] = tasa_fija
 
-st.title("🎲 Simulador de Riesgo Hipotecario (Montecarlo)")
+    # Evitar tipos negativos extremos (suelo bancario implícito suele ser 0% en el índice, pero aquí permitimos matemáticas puras)
+    # matriz_tasas_aplicables = np.maximum(matriz_tasas_aplicables, 0.0)
+
+    # 2. Bucle de Amortización (Mes a Mes)
+    # Usamos float64 para máxima precisión y evitar el error de casting
+    saldo = np.full(n_sims, capital, dtype=np.float64) 
+    matriz_cuotas = np.zeros((n_sims, n_meses), dtype=np.float64)
+    
+    for m in range(n_meses):
+        meses_pendientes = n_meses - m
+        if meses_pendientes <= 0: break
+        
+        tasas_m = matriz_tasas_aplicables[:, m] / 100 / 12  # Mensual decimal
+        
+        # Fórmula de cuota francesa vectorizada
+        # Si tasa es 0 o muy cercana, división simple
+        # Usamos np.where para evitar división por cero si tasa es 0
+        tasas_m = np.where(tasas_m == 0, 1e-10, tasas_m)
+        
+        factor = (1 + tasas_m) ** meses_pendientes
+        cuotas_m = saldo * (tasas_m * factor) / (factor - 1)
+        
+        # Calcular intereses y capital
+        intereses_m = saldo * tasas_m
+        amort_m = cuotas_m - intereses_m
+        
+        # Guardar resultado
+        matriz_cuotas[:, m] = cuotas_m
+        
+        # Actualizar saldo (Vectorizado)
+        saldo -= amort_m
+        
+        # Corrección de precisión (evitar -0.0001)
+        saldo = np.maximum(saldo, 0)
+        
+    return matriz_cuotas, matriz_tasas_aplicables
+
+# --- 3. INTERFAZ DE USUARIO ---
+
+st.title("🛡️ Simulador de Incertidumbre Hipotecaria")
 st.markdown("""
-Esta herramienta simula **1.000 futuros posibles** del Euríbor para analizar el riesgo real de una Hipoteca Mixta/Variable.
-Replica la metodología de consultoras como *Winvest* para medir la probabilidad de escenarios adversos.
+Esta herramienta utiliza el **Método Montecarlo (1.000 simulaciones)** para proyectar cómo podría comportarse tu cuota en el futuro.
+Analiza no solo lo que pagarás hoy, sino el **riesgo** de subidas mañana.
 """)
 
-# --- INPUTS ---
-col_conf1, col_conf2 = st.columns([1, 2])
-
-with col_conf1:
-    st.subheader("1. Datos del Préstamo")
-    capital = st.number_input("Capital (€)", value=200000, step=5000)
-    plazo_anos = st.slider("Plazo (Años)", 10, 40, 30)
+# --- SIDEBAR: DATOS ---
+with st.sidebar:
+    st.header("1. Datos del Préstamo")
+    capital = st.number_input("Capital (€)", value=200000, step=1000)
+    plazo = st.slider("Plazo (Años)", 10, 40, 30)
     
-    st.subheader("2. Producto Hipotecario")
-    tipo_prod = st.radio("Tipo de Hipoteca", ["Mixta", "Variable"])
+    st.header("2. Tipo de Hipoteca")
+    tipo = st.selectbox("Producto", ["Mixta", "Variable", "Fija"])
     
-    dif_variable = st.number_input("Diferencial (%)", value=0.79, step=0.05)
-    
-    periodo_fijo = 0
-    tipo_fijo = 0.0
-    if tipo_prod == "Mixta":
-        periodo_fijo = st.slider("Años Fijos (Mixta)", 1, 20, 5)
-        tipo_fijo = st.number_input("Tipo Fijo Inicial (%)", value=2.50, step=0.05)
+    params = {}
+    if tipo == "Mixta":
+        anos_fijos = st.slider("Años a Tipo Fijo", 1, 15, 5)
+        tasa_fija = st.number_input("Tipo Fijo Inicial (%)", value=2.25, step=0.05)
+        diferencial = st.number_input("Diferencial posterior (%)", value=0.79, step=0.05)
+        params = {'meses_fijos': anos_fijos*12, 'tasa_fija': tasa_fija, 'diferencial': diferencial}
+        
+    elif tipo == "Variable":
+        diferencial = st.number_input("Diferencial + Euríbor (%)", value=0.79, step=0.05)
+        params = {'diferencial': diferencial}
+        
+    elif tipo == "Fija":
+        tasa_fija = st.number_input("Tipo Fijo Total (%)", value=2.95, step=0.05)
+        params = {'tasa_fija': tasa_fija}
 
-with col_conf2:
-    st.subheader("3. Calibración Montecarlo (Mercado)")
-    st.info("Configura cómo se comportará el Euríbor matemáticamente.")
-    
-    c1, c2, c3 = st.columns(3)
-    euribor_hoy = c1.number_input("Euríbor Actual (%)", value=3.7)
-    media_objetivo = c2.number_input("Tendencia a largo plazo (%)", value=2.5, help="Hacia dónde tiende a ir el Euribor en 10-20 años")
-    volatilidad = c3.slider("Volatilidad del Mercado", 0.1, 2.0, 0.8, help="Qué tanto oscila el precio. Más alto = más riesgo/incertidumbre.")
-    
-    if st.button("🔄 Ejecutar 1.000 Simulaciones", type="primary"):
-        with st.spinner('Calculando escenarios estocásticos...'):
-            # 1. Generar Escenarios de Tipos de Interés
-            meses_totales = plazo_anos * 12
-            n_sims = 1000
-            
-            # Matriz: Filas=Simulaciones, Columnas=Meses
-            escenarios_euribor = generar_trayectorias_euribor(n_sims, meses_totales, euribor_hoy, media_objetivo, volatilidad)
-            
-            # 2. Aplicar Diferencial
-            escenarios_tipos = escenarios_euribor + dif_variable
-            
-            # Si es Mixta, sobreescribir los primeros meses con el Tipo Fijo
-            if tipo_prod == "Mixta":
-                meses_fijos = periodo_fijo * 12
-                escenarios_tipos[:, :meses_fijos] = tipo_fijo  # Los primeros meses son fijos y seguros
-            
-            # 3. Calcular Cuotas Mes a Mes
-            # Nota: Para hacerlo vectorizado y rápido, simplificamos asumiendo revisión anual o recálculo continuo
-            # Aquí hacemos recálculo continuo para máxima precisión en la simulación
-            
-            matriz_cuotas = np.zeros((n_sims, meses_totales))
-            saldo = np.full(n_sims, capital) # Vector de saldos iniciales
-            
-            # Loop mensual (necesario porque el saldo depende del mes anterior)
-            for m in range(meses_totales):
-                meses_pendientes = meses_totales - m
-                
-                # Tasa para este mes (Simulaciones x 1)
-                tasa_mes = escenarios_tipos[:, m]
-                
-                # Calcular cuota
-                cuota_m = calcular_cuota_vectorizada(saldo, tasa_mes, meses_pendientes)
-                
-                # Calcular intereses y amortización
-                interes_m = saldo * (tasa_mes / 100 / 12)
-                amort_m = cuota_m - interes_m
-                
-                # Guardar y actualizar saldo
-                matriz_cuotas[:, m] = cuota_m
-                saldo -= amort_m
-                saldo = np.maximum(saldo, 0) # No saldos negativos
+    st.markdown("---")
+    st.header("3. Calibración Mercado")
+    with st.expander("Ajustes Avanzados (Montecarlo)"):
+        euribor_hoy = st.number_input("Euríbor Actual (%)", value=2.80)
+        media_largo = st.number_input("Tendencia LP (%)", value=2.50, help="Media histórica esperada")
+        volatilidad = st.slider("Volatilidad", 0.1, 2.0, 0.7, help="Incertidumbre del mercado")
 
-            # 4. Análisis Estadístico (Percentiles)
-            # Calculamos el percentil 50 (Mediana), 90 (Pesimista) y 10 (Optimista) para cada mes
-            p10_cuota = np.percentile(matriz_cuotas, 10, axis=0)
-            p50_cuota = np.percentile(matriz_cuotas, 50, axis=0)
-            p90_cuota = np.percentile(matriz_cuotas, 90, axis=0)
-            
-            # --- VISUALIZACIÓN ---
-            st.markdown("---")
-            
-            # KPI Cards
-            kpi1, kpi2, kpi3 = st.columns(3)
-            
-            cuota_inicial = matriz_cuotas[0,0]
-            max_p90 = np.max(p90_cuota)
-            prob_subida_brutal = np.mean(np.max(matriz_cuotas, axis=1) > (cuota_inicial * 1.5)) * 100
-            
-            kpi1.metric("Tu Cuota Inicial", f"{cuota_inicial:,.2f} €")
-            kpi2.metric("Techo Riesgo (Escenario Adverso)", f"{max_p90:,.2f} €", 
-                        delta=f"+{max_p90-cuota_inicial:,.0f} € posibles", delta_color="inverse")
-            kpi3.metric("Probabilidad de Cuota x 1.5", f"{prob_subida_brutal:.1f} %", 
-                        help="Probabilidad de que tu cuota llegue a aumentar un 50% en algún momento")
+# --- 4. EJECUCIÓN ---
 
-            # Gráfico de Cuotas (Fan Chart)
-            st.subheader("Evolución Probabilística de tu Cuota")
-            
-            eje_x = np.arange(1, meses_totales + 1) / 12 # Años
-            
-            fig = go.Figure()
-            
-            # Área de incertidumbre (entre optimista y pesimista)
-            fig.add_trace(go.Scatter(
-                x=np.concatenate([eje_x, eje_x[::-1]]),
-                y=np.concatenate([p90_cuota, p10_cuota[::-1]]),
-                fill='toself',
-                fillcolor='rgba(231, 76, 60, 0.2)',
-                line=dict(color='rgba(255,255,255,0)'),
-                hoverinfo="skip",
-                name='Rango de Incertidumbre (80% prob.)'
-            ))
-            
-            # Línea Mediana (Escenario Base)
-            fig.add_trace(go.Scatter(
-                x=eje_x, y=p50_cuota,
-                line=dict(color='rgb(31, 119, 180)', width=3),
-                name='Escenario Central (Mediana)'
-            ))
-            
-            # Línea Pesimista (Risk)
-            fig.add_trace(go.Scatter(
-                x=eje_x, y=p90_cuota,
-                line=dict(color='rgb(231, 76, 60)', width=2, dash='dot'),
-                name='Escenario Adverso (P90)'
-            ))
+if st.button("🚀 Ejecutar Análisis de Riesgo"):
+    with st.spinner("Calculando 1.000 futuros posibles..."):
+        
+        # 1. Generar Escenarios Económicos
+        meses_totales = plazo * 12
+        n_sims = 1000
+        
+        matriz_euribor = generar_euribor_vasicek(n_sims, meses_totales, euribor_hoy, media_largo, 0.15, volatilidad)
+        
+        # 2. Calcular Hipoteca
+        matriz_cuotas, matriz_tipos = calcular_hipoteca_vectorizada(capital, plazo, tipo, params, matriz_euribor)
+        
+        # 3. Estadísticas (Percentiles)
+        # P50 = Escenario Central (Lo más probable)
+        # P90 = Escenario Pesimista (Risk Management)
+        # P10 = Escenario Optimista
+        
+        p10 = np.percentile(matriz_cuotas, 10, axis=0)
+        p50 = np.percentile(matriz_cuotas, 50, axis=0)
+        p90 = np.percentile(matriz_cuotas, 90, axis=0)
+        
+        cuota_inicial = p50[0]
+        max_riesgo = np.max(p90)
+        
+        # --- 5. RESULTADOS ---
+        
+        st.markdown("### 📊 Resultados del Análisis")
+        
+        # KPI Cards
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Cuota Inicial", f"{cuota_inicial:,.2f} €")
+        
+        # Lógica de colores para riesgo
+        delta_riesgo = max_riesgo - cuota_inicial
+        color_riesgo = "normal" if delta_riesgo < 100 else "inverse"
+        
+        col2.metric("Pico Máximo (Escenario Adverso)", f"{max_riesgo:,.2f} €", 
+                   delta=f"+{delta_riesgo:,.0f} €", delta_color=color_riesgo)
+        
+        media_intereses = np.mean(np.sum(matriz_cuotas, axis=1) - capital)
+        col3.metric("Coste Total Intereses (Medio)", f"{media_intereses:,.0f} €")
+        
+        prob_subida = np.mean(np.max(matriz_cuotas, axis=1) > (cuota_inicial + 200)) * 100
+        col4.metric("Prob. subida > 200€", f"{prob_subida:.1f}%")
 
-            fig.update_layout(
-                title="Proyección de Cuotas (Montecarlo 1k iteraciones)",
-                xaxis_title="Años transcurridos",
-                yaxis_title="Cuota Mensual (€)",
-                hovermode="x unified",
-                legend=dict(orientation="h", y=1.1)
-            )
-            
-            # Añadir línea vertical donde termina la hipoteca mixta (si aplica)
-            if tipo_prod == "Mixta":
-                fig.add_vline(x=periodo_fijo, line_dash="dash", line_color="green", annotation_text="Fin Tipo Fijo")
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Explicación del gráfico
-            st.info("""
-            **¿Cómo leer este gráfico?**
-            * La **línea azul** es lo más probable que ocurra.
-            * La **línea roja punteada** es un escenario "malo" (el Euribor sube más de lo esperado). Tienes un 90% de probabilidad de pagar MENOS que esa línea.
-            * El **área sombreada** representa la incertidumbre del mercado.
-            """)
+        # --- GRÁFICO PRINCIPAL (CONO DE INCERTIDUMBRE) ---
+        
+        st.subheader("Evolución Probabilística de la Cuota")
+        
+        eje_x_anos = np.arange(meses_totales) / 12
+        
+        fig = go.Figure()
+        
+        # Relleno del área de incertidumbre (P10 a P90)
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([eje_x_anos, eje_x_anos[::-1]]),
+            y=np.concatenate([p90, p10[::-1]]),
+            fill='toself',
+            fillcolor='rgba(60, 150, 240, 0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            hoverinfo="skip",
+            name='Rango 80% Probabilidad'
+        ))
+        
+        # Línea Mediana
+        fig.add_trace(go.Scatter(
+            x=eje_x_anos, y=p50,
+            line=dict(color='#2980b9', width=3),
+            name='Escenario Central (Mediana)'
+        ))
+        
+        # Línea Pesimista (Risk)
+        fig.add_trace(go.Scatter(
+            x=eje_x_anos, y=p90,
+            line=dict(color='#c0392b', width=2, dash='dot'),
+            name='Escenario Pesimista (P90)'
+        ))
+        
+        # Línea Optimista
+        fig.add_trace(go.Scatter(
+            x=eje_x_anos, y=p10,
+            line=dict(color='#27ae60', width=1, dash='dot'),
+            name='Escenario Optimista (P10)'
+        ))
 
-            # Gráfico de Tipos (Euribor simulado)
-            with st.expander("Ver Proyecciones del Euribor (Materia Prima)"):
-                fig_eur = go.Figure()
-                # Mostramos solo 50 trazas aleatorias para no saturar el gráfico
-                for i in range(50):
-                    fig_eur.add_trace(go.Scatter(
-                        x=eje_x, y=escenarios_euribor[i, :],
-                        mode='lines',
-                        line=dict(color='grey', width=1, check_on_open=True),
-                        opacity=0.1,
-                        showlegend=False
-                    ))
-                fig_eur.add_trace(go.Scatter(x=eje_x, y=np.median(escenarios_euribor, axis=0), name="Euribor Mediano", line=dict(color="black", width=2)))
-                
-                fig_eur.update_layout(title="50 Trayectorias Aleatorias del Euribor", xaxis_title="Año", yaxis_title="Euribor %")
-                st.plotly_chart(fig_eur, use_container_width=True)
+        fig.update_layout(
+            title="Proyección Montecarlo (1.000 Escenarios)",
+            xaxis_title="Años",
+            yaxis_title="Cuota Mensual (€)",
+            hovermode="x unified",
+            legend=dict(orientation="h", y=1.1),
+            height=500
+        )
+        
+        if tipo == "Mixta":
+            fig.add_vline(x=anos_fijos, line_dash="dash", annotation_text="Fin Tipo Fijo")
+            
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # --- EXPLICACIÓN EXPERTA ---
+        st.info(f"""
+        **Interpretación del Gráfico:**
+        * **Línea Azul (Central):** Es lo que el mercado espera hoy que ocurra.
+        * **Línea Roja (Punteada):** Representa un escenario adverso (Top 10% peores casos). Si puedes pagar esta cuota ({max_riesgo:,.0f}€), tu perfil de riesgo es adecuado.
+        * **Área Azul Sombreada:** El 80% de los futuros posibles caen dentro de esta zona. Cuanto más ancha sea la zona, más incertidumbre tiene el producto (Variable pura es más ancha que Mixta).
+        """)
 
-    else:
-        st.info("👈 Ajusta los parámetros y pulsa 'Ejecutar' para iniciar la simulación estocástica.")
+else:
+    # Pantalla de bienvenida / Estado inicial
+    st.info("👈 Configura tu hipoteca en el menú lateral y pulsa 'Ejecutar Análisis' para ver la simulación Montecarlo.")
