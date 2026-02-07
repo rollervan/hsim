@@ -2,221 +2,197 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Simulador Hipotecario Pro", layout="wide")
+# --- CONFIGURACIÓN VISUAL (ESTILO WINVEST/FINTECH) ---
+st.set_page_config(page_title="Simulador Hipotecario Estratégico", layout="wide", page_icon="🏠")
 
-# --- ESTILOS CSS ---
+# CSS para dar aspecto profesional/bancario
 st.markdown("""
     <style>
-    .big-font { font-size:24px !important; font-weight: bold; }
-    .metric-container { background-color: #f0f2f6; padding: 15px; border-radius: 10px; }
+    .main { background-color: #FAFAFA; }
+    .stMetric { background-color: #FFFFFF; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    h1, h2, h3 { color: #0E1117; font-family: 'Sans-serif'; }
+    .highlight { color: #2E86C1; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCIONES DE CÁLCULO ---
+# --- MOTOR DE CÁLCULO FINANCIERO ---
 
-def calcular_cuota_mensual(capital, tasa_anual, meses_restantes):
-    """Calcula la cuota mensual usando el sistema de amortización francés."""
-    if tasa_anual == 0:
-        return capital / meses_restantes
-    
-    i = tasa_anual / 12 / 100
-    return capital * (i * (1 + i)**meses_restantes) / ((1 + i)**meses_restantes - 1)
+def calcular_cuota_francesa(capital, tasa_anual, meses):
+    """Calcula cuota mensual sistema francés."""
+    if tasa_anual == 0: return capital / meses
+    i = tasa_anual / 100 / 12
+    return capital * (i * (1 + i)**meses) / ((1 + i)**meses - 1)
 
-def generar_cuadro_amortizacion(capital, plazo_anos, tipo_hipoteca, params):
+def simular_hipoteca(monto, plazo_anos, tipo, params):
     """
-    Genera el cuadro de amortización mes a mes.
-    Simula revisión de tipo de interés ANUAL para la parte variable.
+    Simula la vida de la hipoteca mes a mes.
+    Maneja: Fija, Variable pura y Mixta.
     """
-    plazo_meses = plazo_anos * 12
-    saldo_pendiente = capital
-    calendario = []
+    meses_totales = plazo_anos * 12
+    saldo = monto
+    datos = []
     
-    euribor_base = params.get('euribor_proyeccion', 2.5)
+    euribor_base = params.get('euribor', 2.5)
     
-    # Parámetros específicos
-    periodo_fijo_anos = params.get('periodo_fijo', 0)
-    tipo_fijo = params.get('tipo_fijo', 0)
-    diferencial = params.get('diferencial', 0)
+    # Desglose de parámetros
+    periodo_fijo = params.get('periodo_fijo_anos', 0) * 12
+    tasa_fija = params.get('tasa_fija', 0.0)
+    diferencial = params.get('diferencial', 0.0)
     
-    cuota_actual = 0
-    tasa_actual = 0
+    tasa_actual = 0.0
+    cuota = 0.0
     
-    for mes in range(1, plazo_meses + 1):
-        ano_actual = (mes - 1) // 12
+    for mes in range(1, meses_totales + 1):
+        # Determinar Tasa
+        es_periodo_fijo = False
         
-        # Determinar Tasa de Interés del periodo
-        if tipo_hipoteca == "Mixta" and mes <= (periodo_fijo_anos * 12):
-            tasa_aplicable = tipo_fijo
-            modo = "Fijo"
-        else:
-            # Parte Variable (o toda la hipoteca si es Variable)
-            # Simulamos que el Euribor varía ligeramente según la proyección
-            # Aquí se podría hacer más complejo con una curva de tipos
-            tasa_aplicable = euribor_base + diferencial
-            modo = "Variable"
-
-        # Recalcular cuota si cambia el tipo o es revisión anual (mes 1, 13, 25...)
-        # En España las variables se suelen revisar anualmente
-        if mes == 1 or (modo == "Variable" and (mes - 1) % 12 == 0) or (modo == "Fijo" and mes == 1):
-            cuota_actual = calcular_cuota_mensual(saldo_pendiente, tasa_aplicable, plazo_meses - mes + 1)
-            tasa_actual = tasa_aplicable
-
-        interes_mes = saldo_pendiente * (tasa_actual / 12 / 100)
-        amortizacion_capital = cuota_actual - interes_mes
+        if tipo == "Fija":
+            tasa_actual = tasa_fija
+            es_periodo_fijo = True
+        elif tipo == "Variable":
+            tasa_actual = euribor_base + diferencial
+        elif tipo == "Mixta":
+            if mes <= periodo_fijo:
+                tasa_actual = tasa_fija
+                es_periodo_fijo = True
+            else:
+                tasa_actual = euribor_base + diferencial
+        
+        # Revisión de cuota (Anual o al cambio de tramo)
+        # En sistema francés recalculamos si cambia el interés
+        if mes == 1 or (not es_periodo_fijo and (mes - 1) % 12 == 0) or (mes == periodo_fijo + 1):
+            cuota = calcular_cuota_francesa(saldo, tasa_actual, meses_totales - mes + 1)
+            
+        interes_pagado = saldo * (tasa_actual / 100 / 12)
+        capital_amortizado = cuota - interes_pagado
         
         # Ajuste final
-        if saldo_pendiente - amortizacion_capital < 0:
-            amortizacion_capital = saldo_pendiente
-            cuota_actual = interes_mes + amortizacion_capital
+        if saldo - capital_amortizado < 0:
+            capital_amortizado = saldo
+            cuota = interes_pagado + capital_amortizado
 
-        saldo_pendiente -= amortizacion_capital
+        saldo -= capital_amortizado
         
-        calendario.append({
+        datos.append({
             "Mes": mes,
-            "Año": ano_actual + 1,
-            "Tipo Aplicado %": round(tasa_actual, 2),
-            "Cuota": round(cuota_actual, 2),
-            "Intereses": round(interes_mes, 2),
-            "Amortización": round(amortizacion_capital, 2),
-            "Capital Pendiente": round(max(0, saldo_pendiente), 2),
-            "Fase": modo
+            "Año": (mes-1)//12 + 1,
+            "Tasa %": round(tasa_actual, 2),
+            "Cuota": round(cuota, 2),
+            "Intereses": round(interes_pagado, 2),
+            "Amortización": round(capital_amortizado, 2),
+            "Saldo Pendiente": round(max(0, saldo), 2),
+            "Tipo": tipo
         })
         
-        if saldo_pendiente <= 0:
-            break
-            
-    return pd.DataFrame(calendario)
-
-# --- INTERFAZ DE USUARIO ---
-
-st.title("🏡 Simulador de Hipotecas Avanzado")
-st.markdown("Replica de análisis financiero tipo *Winvest* para hipotecas Mixtas y Variables.")
-
-# Sidebar - Datos Generales
-with st.sidebar:
-    st.header("Datos del Préstamo")
-    capital = st.number_input("Capital a solicitar (€)", min_value=10000, value=200000, step=1000)
-    plazo = st.slider("Plazo (Años)", min_value=5, max_value=40, value=30)
-    
-    st.markdown("---")
-    st.header("Escenario de Mercado")
-    euribor_input = st.number_input("Euríbor Estimado Promedio (%)", min_value=-0.5, max_value=10.0, value=2.6, step=0.1)
-    st.caption("Nota: Este simulador asume un Euríbor constante basado en tu proyección para simplificar la visualización a largo plazo.")
-
-# Tabs para tipo de hipoteca
-tab1, tab2 = st.tabs(["🔄 Hipoteca Variable", "🔀 Hipoteca Mixta"])
-
-df_amortizacion = None
-params = {}
-tipo_seleccionado = ""
-
-# --- LÓGICA HIPOTECA VARIABLE ---
-with tab1:
-    st.subheader("Configuración Variable")
-    col1, col2 = st.columns(2)
-    with col1:
-        dif_var = st.number_input("Diferencial (%)", min_value=0.0, value=0.79, step=0.01, help="Lo que suma el banco al Euribor")
-    with col2:
-        st.info(f"Tipo Inicial Estimado: **{euribor_input + dif_var:.2f}%** (Euribor + Diferencial)")
-    
-    if st.button("Calcular Variable", type="primary"):
-        tipo_seleccionado = "Variable"
-        params = {"diferencial": dif_var, "euribor_proyeccion": euribor_input}
-        df_amortizacion = generar_cuadro_amortizacion(capital, plazo, "Variable", params)
-
-# --- LÓGICA HIPOTECA MIXTA ---
-with tab2:
-    st.subheader("Configuración Mixta")
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        periodo_fijo = st.number_input("Años a Tipo Fijo", min_value=1, max_value=plazo-1, value=5)
-    with col_m2:
-        tipo_fijo_mix = st.number_input("Tipo Fijo Inicial (%)", min_value=0.0, value=2.25, step=0.05)
-    with col_m3:
-        dif_mix = st.number_input("Diferencial tramo variable (%)", min_value=0.0, value=0.85, step=0.01)
+        if saldo <= 0: break
         
-    st.info(f"Resumen: **{periodo_fijo} años** al **{tipo_fijo_mix}%**, luego Euribor + **{dif_mix}%**")
-    
-    if st.button("Calcular Mixta", type="primary"):
-        tipo_seleccionado = "Mixta"
-        params = {
-            "periodo_fijo": periodo_fijo, 
-            "tipo_fijo": tipo_fijo_mix, 
-            "diferencial": dif_mix,
-            "euribor_proyeccion": euribor_input
-        }
-        df_amortizacion = generar_cuadro_amortizacion(capital, plazo, "Mixta", params)
+    return pd.DataFrame(datos)
 
-# --- RESULTADOS Y VISUALIZACIÓN ---
-if df_amortizacion is not None:
+# --- INTERFAZ PRINCIPAL ---
+
+st.title("🏡 Simulador de Estrategia Hipotecaria")
+st.markdown("Herramienta de análisis financiero para comparar **Mixta vs Variable vs Fija**.")
+
+# 1. BARRA LATERAL: DATOS DE LA OPERACIÓN
+with st.sidebar:
+    st.header("1. Datos de la Operación")
+    precio_vivienda = st.number_input("Precio de Compra (€)", value=300000, step=5000)
+    ahorro_aportado = st.number_input("Aportación Inicial / Entrada (€)", value=60000, step=1000)
+    plazo = st.slider("Plazo (Años)", 10, 40, 30)
+    
+    monto_prestamo = precio_vivienda - ahorro_aportado
+    ltv = (monto_prestamo / precio_vivienda) * 100
+    
     st.markdown("---")
-    st.header(f"📊 Análisis de Hipoteca {tipo_seleccionado}")
+    st.metric("Importe Hipoteca", f"{monto_prestamo:,.0f} €")
+    if ltv > 80:
+        st.error(f"⚠️ Financiación: {ltv:.1f}% (>80%). Requerirá negociación especial.")
+    else:
+        st.success(f"✅ Financiación: {ltv:.1f}% (Estándar)")
+
+    st.markdown("---")
+    st.header("2. Escenario de Mercado")
+    euribor_simulado = st.slider("Euríbor Promedio Estimado (%)", 0.0, 6.0, 2.5, 0.1)
+    st.caption("Define el Euríbor medio para los tramos variables.")
+
+# 2. CONFIGURACIÓN DE PRODUCTOS
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("Configura tu Hipoteca Mixta")
+    st.caption("El producto estrella actual.")
+    mix_fijo_anos = st.number_input("Años Fijos (Mixta)", 1, 15, 5)
+    mix_tasa_fija = st.number_input("Tasa Fija Inicial (%)", 0.0, 10.0, 2.25, step=0.05)
+    mix_dif = st.number_input("Diferencial Variable (%)", 0.0, 5.0, 0.70, step=0.05)
+
+    st.markdown("---")
+    st.subheader("Comparativa (Opcional)")
+    var_dif = st.number_input("Diferencial (Opción Variable Pura)", 0.0, 5.0, 0.89, step=0.05)
+    fija_tasa = st.number_input("Tasa (Opción Fija Pura)", 0.0, 10.0, 2.95, step=0.05)
+
+# CÁLCULO DE ESCENARIOS
+params_mixta = {'periodo_fijo_anos': mix_fijo_anos, 'tasa_fija': mix_tasa_fija, 'diferencial': mix_dif, 'euribor': euribor_simulado}
+df_mixta = simular_hipoteca(monto_prestamo, plazo, "Mixta", params_mixta)
+
+params_variable = {'periodo_fijo_anos': 0, 'tasa_fija': 0, 'diferencial': var_dif, 'euribor': euribor_simulado}
+df_variable = simular_hipoteca(monto_prestamo, plazo, "Variable", params_variable)
+
+params_fija = {'periodo_fijo_anos': plazo, 'tasa_fija': fija_tasa, 'diferencial': 0, 'euribor': 0}
+df_fija = simular_hipoteca(monto_prestamo, plazo, "Fija", params_fija)
+
+# 3. RESULTADOS VISUALES
+with col2:
+    st.subheader("💡 Análisis de Cuota Mensual")
     
-    # KPIs
-    total_pagado = df_amortizacion['Cuota'].sum()
-    total_intereses = df_amortizacion['Intereses'].sum()
-    cuota_inicial = df_amortizacion.iloc[0]['Cuota']
-    
-    # Buscar si hay cambio de cuota (max cuota)
-    cuota_max = df_amortizacion['Cuota'].max()
-    
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Cuota Inicial", f"{cuota_inicial:,.2f} €")
-    kpi2.metric("Cuota Máxima Estimada", f"{cuota_max:,.2f} €", delta=round(cuota_max - cuota_inicial, 2), delta_color="inverse")
-    kpi3.metric("Total Intereses", f"{total_intereses:,.2f} €")
-    kpi4.metric("Total a Pagar", f"{total_pagado:,.2f} €")
-    
-    # Gráficos
-    st.subheader("Evolución Temporal")
-    
-    # Gráfico de Líneas (Capital vs Cuota)
+    # Crear gráfico comparativo
     fig = go.Figure()
     
-    # Eje Y primario: Cuota
-    fig.add_trace(go.Scatter(
-        x=df_amortizacion['Mes'], 
-        y=df_amortizacion['Cuota'], 
-        name='Cuota Mensual (€)',
-        line=dict(color='firebrick', width=2)
-    ))
+    # Mixta
+    fig.add_trace(go.Scatter(x=df_mixta['Año'], y=df_mixta['Cuota'], mode='lines', name='Mixta', line=dict(color='#2E86C1', width=4)))
+    # Variable
+    fig.add_trace(go.Scatter(x=df_variable['Año'], y=df_variable['Cuota'], mode='lines', name='Variable Pura', line=dict(color='#E74C3C', dash='dash')))
+    # Fija
+    fig.add_trace(go.Scatter(x=df_fija['Año'], y=df_fija['Cuota'], mode='lines', name='Fija Pura', line=dict(color='#27AE60', dash='dot')))
     
-    # Eje Y secundario: Capital Pendiente
-    fig.add_trace(go.Scatter(
-        x=df_amortizacion['Mes'], 
-        y=df_amortizacion['Capital Pendiente'], 
-        name='Capital Pendiente (€)',
-        line=dict(color='royalblue', width=2, dash='dot'),
-        yaxis='y2'
-    ))
-    
-    fig.update_layout(
-        title='Cuota Mensual vs Amortización del Capital',
-        xaxis_title='Mes',
-        yaxis=dict(title='Cuota Mensual (€)'),
-        yaxis2=dict(title='Capital Pendiente (€)', overlaying='y', side='right'),
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    
+    fig.update_layout(title="Evolución de la Cuota Mensual", xaxis_title="Año", yaxis_title="Cuota (€)", hovermode="x unified", legend=dict(orientation="h", y=1.1))
     st.plotly_chart(fig, use_container_width=True)
+
+    # Métricas clave
+    c_mix_ini = df_mixta['Cuota'].iloc[0]
+    c_mix_var = df_mixta[df_mixta['Mes'] > (mix_fijo_anos*12)]['Cuota'].iloc[0] if len(df_mixta) > (mix_fijo_anos*12) else c_mix_ini
     
-    # Tabla Detallada
-    with st.expander("Ver Cuadro de Amortización Completo"):
-        st.dataframe(df_amortizacion.style.format({
-            "Tipo Aplicado %": "{:.2f}%",
-            "Cuota": "{:,.2f} €",
-            "Intereses": "{:,.2f} €",
-            "Amortización": "{:,.2f} €",
-            "Capital Pendiente": "{:,.2f} €"
-        }))
-        
-        # Botón de descarga
-        csv = df_amortizacion.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Descargar Cuadro en Excel (CSV)",
-            data=csv,
-            file_name=f'simulacion_hipoteca_{tipo_seleccionado.lower()}.csv',
-            mime='text/csv',
-        )
+    st.info(f"**Análisis Mixta:** Pagarás **{c_mix_ini:,.2f}€** durante {mix_fijo_anos} años. Si el Euríbor está al {euribor_simulado}%, pasarás a pagar **{c_mix_var:,.2f}€**.")
+
+# --- COMPARATIVA DE COSTES TOTALES ---
+st.markdown("---")
+st.subheader("💰 Coste Total del Préstamo (Intereses Pagados)")
+
+total_mixta = df_mixta['Intereses'].sum()
+total_variable = df_variable['Intereses'].sum()
+total_fija = df_fija['Intereses'].sum()
+
+col_res1, col_res2, col_res3 = st.columns(3)
+
+with col_res1:
+    st.metric("Total Intereses (Mixta)", f"{total_mixta:,.0f} €")
+    st.progress(min(1.0, total_mixta / max(total_mixta, total_variable, total_fija)))
+
+with col_res2:
+    st.metric("Total Intereses (Variable)", f"{total_variable:,.0f} €", delta=f"{total_variable - total_mixta:,.0f} € vs Mixta", delta_color="inverse")
+    st.progress(min(1.0, total_variable / max(total_mixta, total_variable, total_fija)))
+
+with col_res3:
+    st.metric("Total Intereses (Fija)", f"{total_fija:,.0f} €", delta=f"{total_fija - total_mixta:,.0f} € vs Mixta", delta_color="inverse")
+    st.progress(min(1.0, total_fija / max(total_mixta, total_variable, total_fija)))
+
+# --- DETALLE Y EXPORTACIÓN ---
+with st.expander("Ver Tabla de Amortización Detallada (Hipoteca Mixta)"):
+    st.dataframe(df_mixta[['Mes', 'Año', 'Tasa %', 'Cuota', 'Intereses', 'Amortización', 'Saldo Pendiente']].style.format("{:.2f}"))
+    
+    csv = df_mixta.to_csv(index=False).encode('utf-8')
+    st.download_button("Descargar Excel (.csv)", csv, "simulacion_winvest.csv", "text/csv")
+
+# --- DISCLAIMER ---
+st.caption("Nota: Simulación con fines informativos basada en sistema de amortización francés. No incluye gastos de compraventa (ITP, Notaría, Gestoría) ni vinculaciones (seguros de vida/hogar) que pueden bonificar el tipo de interés.")
