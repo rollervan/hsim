@@ -157,49 +157,41 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
     return np.array(sims)
     
 def calcular_cashflow(df_hipoteca, ingresos_mensuales, gastos_men_base, gastos_anuales_base, ahorro_inicial, ipc, subida_salario):
-    # Creamos una copia para no alterar el original
     df = df_hipoteca.copy()
     
-    # Vectores para columnas nuevas
     ingresos_reales = []
     gastos_vida_reales = []
     ahorro_acumulado = []
+    flujos_mensuales = []  # <--- NUEVO
     
     saldo_actual = ahorro_inicial
     
-    # Iteramos por cada fila (mes)
     for index, row in df.iterrows():
         mes_global = row['Mes']
         anio_actual = int((mes_global - 1) / 12)
         
-        # Ajuste de inflación y salario según el año
         factor_ipc = (1 + ipc) ** anio_actual
         factor_salario = (1 + subida_salario) ** anio_actual
         
-        # Ingresos
         ingreso_mes = ingresos_mensuales * factor_salario
         
-        # Gastos de vida (Mensuales + Anuales prorrateados o puntuales)
-        # Aquí prorrateamos el gasto anual para suavizar la gráfica, 
-        # pero matemáticamente es el impacto mensual medio.
+        # Prorrateo de gastos anuales + mensuales
         gasto_vida_mes = (gastos_men_base + (gastos_anuales_base / 12)) * factor_ipc
         
-        # Coste Hipoteca Total este mes (Cuota + Seguros + Gastos Fijos Hipoteca + Amort anticipada)
-        # Nota: 'Seguros' ya debe estar calculado en el DF antes de llamar a esta función, 
-        # si no, usamos row.get('Seguros', 0)
         coste_hipoteca = row['Cuota'] + row.get('Seguros', 0) + row['Gastos_Fijos'] + row['Amort_Extra']
         
-        # Flujo Neto del mes
         flujo_neto = ingreso_mes - gasto_vida_mes - coste_hipoteca
         
         saldo_actual += flujo_neto
         
         ingresos_reales.append(ingreso_mes)
         gastos_vida_reales.append(gasto_vida_mes)
+        flujos_mensuales.append(flujo_neto) # <--- NUEVO
         ahorro_acumulado.append(saldo_actual)
         
     df['Ingresos_Real'] = ingresos_reales
     df['Gastos_Vida_Real'] = gastos_vida_reales
+    df['Flujo_Mensual'] = flujos_mensuales  # <--- NUEVO
     df['Ahorro_Disponible'] = ahorro_acumulado
     
     return df
@@ -677,68 +669,77 @@ if comparar:
             st.plotly_chart(fig_risk, use_container_width=True)
 
     with tabs[4]:
-        st.subheader("Simulación de Dinero Disponible (Cash Flow)")
-        st.caption("Proyección teniendo en cuenta ingresos, inflación, subidas salariales, gastos de vida y costes de la hipoteca.")
+        st.subheader("💰 Análisis de Liquidez")
+        
+        # 1. GRÁFICA DE AHORRO MENSUAL (BAR CHART)
+        st.markdown("##### 1. Ahorro Mensual (Lo que te sobra cada mes)")
+        st.caption("Verde: Ingresas más de lo que gastas. Rojo: Gastas más de lo que ingresas.")
+        
+        fig_mes = go.Figure()
+        
+        # Colores dinámicos: Verde si es positivo, Rojo si es negativo
+        colors_A = ['#2ca02c' if val >= 0 else '#d62728' for val in df_median_A['Flujo_Mensual']]
+        
+        fig_mes.add_trace(go.Bar(
+            x=df_median_A['Mes'], 
+            y=df_median_A['Flujo_Mensual'],
+            marker_color=colors_A,
+            name='Ahorro Mes A'
+        ))
+        
+        if comparar:
+            # Si comparamos, añadimos B como una línea para no ensuciar el gráfico de barras
+            fig_mes.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=df_median_B['Flujo_Mensual'],
+                mode='lines',
+                line=dict(color='#ff7f0e', width=2, dash='dot'),
+                name='Ahorro Mes B (Línea)'
+            ))
 
-        # Métricas Resumen
+        fig_mes.update_layout(
+            height=350, 
+            template="plotly_white",
+            yaxis_title="Euros (€)",
+            xaxis_title="Mes",
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_mes, use_container_width=True)
+
+        st.divider()
+
+        # 2. GRÁFICA DE ACUMULADO (LINE CHART)
+        st.markdown("##### 2. Saldo Acumulado en Cuenta (Colchón)")
+        st.caption("Cómo evoluciona tu dinero total en el banco a lo largo de los años.")
+
         saldo_final_A = df_median_A['Ahorro_Disponible'].iloc[-1]
         min_liquidez_A = df_median_A['Ahorro_Disponible'].min()
-        
-        col_cf1, col_cf2, col_cf3 = st.columns(3)
-        col_cf1.metric("Saldo Final (Año Fin)", f"{saldo_final_A:,.0f} €", help="Dinero disponible al finalizar la hipoteca")
-        col_cf2.metric("Punto Mínimo Liquidez", f"{min_liquidez_A:,.0f} €", help="El momento de mayor 'aprieto' económico", 
-                       delta="¡Cuidado!" if min_liquidez_A < 0 else "Ok", delta_color="inverse")
-        
-        # Gráfica de Evolución de Liquidez
+
+        c1, c2 = st.columns(2)
+        c1.metric("Saldo Final (Año Fin)", f"{saldo_final_A:,.0f} €")
+        c2.metric("Momento más crítico", f"{min_liquidez_A:,.0f} €", 
+                  delta="Peligro" if min_liquidez_A < 0 else "Ok", delta_color="inverse")
+
         fig_cf = go.Figure()
-        
         fig_cf.add_trace(go.Scatter(
             x=df_median_A['Mes'], 
             y=df_median_A['Ahorro_Disponible'], 
-            name='Disponible Acumulado A',
+            name='Saldo Acumulado A',
             fill='tozeroy',
-            line=dict(color='#2ca02c')
+            line=dict(color='#1f77b4')
         ))
         
         if comparar:
             fig_cf.add_trace(go.Scatter(
                 x=df_median_B['Mes'], 
                 y=df_median_B['Ahorro_Disponible'], 
-                name='Disponible Acumulado B',
+                name='Saldo Acumulado B',
                 line=dict(color='#ff7f0e', dash='dash')
             ))
-
-        # Línea de 0 (Peligro)
-        fig_cf.add_hline(y=0, line_dash="dot", line_color="red", annotation_text="Bancarrota (0€)")
-
-        fig_cf.update_layout(
-            title="Evolución de tus Ahorros Disponibles",
-            xaxis_title="Meses",
-            yaxis_title="Euros en cuenta (€)",
-            template="plotly_white",
-            height=450,
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig_cf, use_container_width=True)
-        
-        # Gráfica Ingresos vs Gastos (Solo Opción A para no saturar)
-        with st.expander("Ver detalle Ingresos vs Gastos (Opción A)"):
-            fig_io = go.Figure()
-            # Ingresos
-            fig_io.add_trace(go.Scatter(
-                x=df_median_A['Mes'], y=df_median_A['Ingresos_Real'], 
-                name='Ingresos Netos', line=dict(color='green')
-            ))
-            # Gastos Totales (Vida + Hipoteca)
-            total_gastos_mes = df_median_A['Gastos_Vida_Real'] + df_median_A['Cuota'] + df_median_A['Seguros']
-            fig_io.add_trace(go.Scatter(
-                x=df_median_A['Mes'], y=total_gastos_mes, 
-                name='Gastos Totales (Vida + Hipoteca)', 
-                fill='tonexty', line=dict(color='#d62728')
-            ))
             
-            fig_io.update_layout(title="Flujo Mensual: Entradas vs Salidas", height=350, template="plotly_white")
-            st.plotly_chart(fig_io, use_container_width=True)
+        fig_cf.add_hline(y=0, line_dash="dot", line_color="red", annotation_text="0 €")
+        fig_cf.update_layout(height=350, template="plotly_white", yaxis_title="Saldo Total (€)")
+        st.plotly_chart(fig_cf, use_container_width=True)
 
 else:
     # VISTA INDIVIDUAL
@@ -838,65 +839,74 @@ else:
             st.plotly_chart(fig_h, use_container_width=True)
 
     with tabs[4]:
-        st.subheader("Simulación de Dinero Disponible (Cash Flow)")
-        st.caption("Proyección teniendo en cuenta ingresos, inflación, subidas salariales, gastos de vida y costes de la hipoteca.")
+        st.subheader("💰 Análisis de Liquidez")
+        
+        # 1. GRÁFICA DE AHORRO MENSUAL (BAR CHART)
+        st.markdown("##### 1. Ahorro Mensual (Lo que te sobra cada mes)")
+        st.caption("Verde: Ingresas más de lo que gastas. Rojo: Gastas más de lo que ingresas.")
+        
+        fig_mes = go.Figure()
+        
+        # Colores dinámicos: Verde si es positivo, Rojo si es negativo
+        colors_A = ['#2ca02c' if val >= 0 else '#d62728' for val in df_median_A['Flujo_Mensual']]
+        
+        fig_mes.add_trace(go.Bar(
+            x=df_median_A['Mes'], 
+            y=df_median_A['Flujo_Mensual'],
+            marker_color=colors_A,
+            name='Ahorro Mes A'
+        ))
+        
+        if comparar:
+            # Si comparamos, añadimos B como una línea para no ensuciar el gráfico de barras
+            fig_mes.add_trace(go.Scatter(
+                x=df_median_B['Mes'], 
+                y=df_median_B['Flujo_Mensual'],
+                mode='lines',
+                line=dict(color='#ff7f0e', width=2, dash='dot'),
+                name='Ahorro Mes B (Línea)'
+            ))
 
-        # Métricas Resumen
+        fig_mes.update_layout(
+            height=350, 
+            template="plotly_white",
+            yaxis_title="Euros (€)",
+            xaxis_title="Mes",
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_mes, use_container_width=True)
+
+        st.divider()
+
+        # 2. GRÁFICA DE ACUMULADO (LINE CHART)
+        st.markdown("##### 2. Saldo Acumulado en Cuenta (Colchón)")
+        st.caption("Cómo evoluciona tu dinero total en el banco a lo largo de los años.")
+
         saldo_final_A = df_median_A['Ahorro_Disponible'].iloc[-1]
         min_liquidez_A = df_median_A['Ahorro_Disponible'].min()
-        
-        col_cf1, col_cf2, col_cf3 = st.columns(3)
-        col_cf1.metric("Saldo Final (Año Fin)", f"{saldo_final_A:,.0f} €", help="Dinero disponible al finalizar la hipoteca")
-        col_cf2.metric("Punto Mínimo Liquidez", f"{min_liquidez_A:,.0f} €", help="El momento de mayor 'aprieto' económico", 
-                       delta="¡Cuidado!" if min_liquidez_A < 0 else "Ok", delta_color="inverse")
-        
-        # Gráfica de Evolución de Liquidez
+
+        c1, c2 = st.columns(2)
+        c1.metric("Saldo Final (Año Fin)", f"{saldo_final_A:,.0f} €")
+        c2.metric("Momento más crítico", f"{min_liquidez_A:,.0f} €", 
+                  delta="Peligro" if min_liquidez_A < 0 else "Ok", delta_color="inverse")
+
         fig_cf = go.Figure()
-        
         fig_cf.add_trace(go.Scatter(
             x=df_median_A['Mes'], 
             y=df_median_A['Ahorro_Disponible'], 
-            name='Disponible Acumulado A',
+            name='Saldo Acumulado A',
             fill='tozeroy',
-            line=dict(color='#2ca02c')
+            line=dict(color='#1f77b4')
         ))
         
         if comparar:
             fig_cf.add_trace(go.Scatter(
                 x=df_median_B['Mes'], 
                 y=df_median_B['Ahorro_Disponible'], 
-                name='Disponible Acumulado B',
+                name='Saldo Acumulado B',
                 line=dict(color='#ff7f0e', dash='dash')
             ))
-
-        # Línea de 0 (Peligro)
-        fig_cf.add_hline(y=0, line_dash="dot", line_color="red", annotation_text="Bancarrota (0€)")
-
-        fig_cf.update_layout(
-            title="Evolución de tus Ahorros Disponibles",
-            xaxis_title="Meses",
-            yaxis_title="Euros en cuenta (€)",
-            template="plotly_white",
-            height=450,
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig_cf, use_container_width=True)
-        
-        # Gráfica Ingresos vs Gastos (Solo Opción A para no saturar)
-        with st.expander("Ver detalle Ingresos vs Gastos (Opción A)"):
-            fig_io = go.Figure()
-            # Ingresos
-            fig_io.add_trace(go.Scatter(
-                x=df_median_A['Mes'], y=df_median_A['Ingresos_Real'], 
-                name='Ingresos Netos', line=dict(color='green')
-            ))
-            # Gastos Totales (Vida + Hipoteca)
-            total_gastos_mes = df_median_A['Gastos_Vida_Real'] + df_median_A['Cuota'] + df_median_A['Seguros']
-            fig_io.add_trace(go.Scatter(
-                x=df_median_A['Mes'], y=total_gastos_mes, 
-                name='Gastos Totales (Vida + Hipoteca)', 
-                fill='tonexty', line=dict(color='#d62728')
-            ))
             
-            fig_io.update_layout(title="Flujo Mensual: Entradas vs Salidas", height=350, template="plotly_white")
-            st.plotly_chart(fig_io, use_container_width=True)
+        fig_cf.add_hline(y=0, line_dash="dot", line_color="red", annotation_text="0 €")
+        fig_cf.update_layout(height=350, template="plotly_white", yaxis_title="Saldo Total (€)")
+        st.plotly_chart(fig_cf, use_container_width=True)
