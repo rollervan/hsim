@@ -159,39 +159,59 @@ def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
 def calcular_cashflow(df_hipoteca, ingresos_mensuales, gastos_men_base, gastos_anuales_base, ahorro_inicial, ipc, subida_salario):
     df = df_hipoteca.copy()
     
+    # Listas para guardar los datos paso a paso
     ingresos_reales = []
     gastos_vida_reales = []
+    coste_hipoteca_total = []
+    flujos_mensuales = []
     ahorro_acumulado = []
-    flujos_mensuales = []  # <--- NUEVO
     
-    saldo_actual = ahorro_inicial
+    saldo_actual = float(ahorro_inicial)
+    
+    # Pre-calculamos el gasto anual prorrateado mensual
+    gasto_anual_mensualizado = gastos_anuales_base / 12.0
     
     for index, row in df.iterrows():
         mes_global = row['Mes']
         anio_actual = int((mes_global - 1) / 12)
         
+        # 1. Factores de corrección (Inflación y Subida salarial)
         factor_ipc = (1 + ipc) ** anio_actual
         factor_salario = (1 + subida_salario) ** anio_actual
         
+        # 2. Ingresos del mes
         ingreso_mes = ingresos_mensuales * factor_salario
         
-        # Prorrateo de gastos anuales + mensuales
-        gasto_vida_mes = (gastos_men_base + (gastos_anuales_base / 12)) * factor_ipc
+        # 3. Gastos de vida (Base + Anuales prorrateados) ajustados por IPC
+        gasto_vida_mes = (gastos_men_base + gasto_anual_mensualizado) * factor_ipc
         
-        coste_hipoteca = row['Cuota'] + row.get('Seguros', 0) + row['Gastos_Fijos'] + row['Amort_Extra']
+        # 4. Coste Hipoteca (Suma de todo: Cuota, Seguros, Comisiones, Amortizaciones)
+        # Usamos .get() por seguridad, pero forzamos float
+        cuota = float(row['Cuota'])
+        seguros = float(row.get('Seguros', 0))
+        gastos_fijos = float(row['Gastos_Fijos']) # Comisiones apertura, tasación...
+        amort_extra = float(row['Amort_Extra'])
         
-        flujo_neto = ingreso_mes - gasto_vida_mes - coste_hipoteca
+        coste_hip_mes = cuota + seguros + gastos_fijos + amort_extra
         
+        # 5. Cálculo del Flujo Neto
+        flujo_neto = ingreso_mes - gasto_vida_mes - coste_hip_mes
+        
+        # 6. Actualizar saldo acumulado
         saldo_actual += flujo_neto
         
+        # Guardamos datos
         ingresos_reales.append(ingreso_mes)
         gastos_vida_reales.append(gasto_vida_mes)
-        flujos_mensuales.append(flujo_neto) # <--- NUEVO
+        coste_hipoteca_total.append(coste_hip_mes)
+        flujos_mensuales.append(flujo_neto)
         ahorro_acumulado.append(saldo_actual)
         
+    # Asignamos columnas al DF
     df['Ingresos_Real'] = ingresos_reales
     df['Gastos_Vida_Real'] = gastos_vida_reales
-    df['Flujo_Mensual'] = flujos_mensuales  # <--- NUEVO
+    df['Coste_Hip_Total'] = coste_hipoteca_total
+    df['Flujo_Mensual'] = flujos_mensuales
     df['Ahorro_Disponible'] = ahorro_acumulado
     
     return df
@@ -469,7 +489,9 @@ if n_sims > 1:
 
     # ================= NUEVO INICIO =================
     total_gastos_mensuales = g_comida + g_suministros + g_gasolina + g_otros
-    
+df_median_A = calcular_cashflow(
+    df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
+)
     # Calculamos Cashflow A
     df_median_A = calcular_cashflow(
         df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
@@ -741,6 +763,30 @@ if comparar:
         fig_cf.update_layout(height=350, template="plotly_white", yaxis_title="Saldo Total (€)")
         st.plotly_chart(fig_cf, use_container_width=True)
 
+        st.divider()
+        st.subheader("🕵️‍♀️ Verificación de Cálculos (La prueba del algodón)")
+        st.caption("Revisa aquí los números exactos de los primeros meses para ver si cuadran.")
+        
+        # Seleccionamos columnas clave para mostrar
+        cols_check = ['Mes', 'Ingresos_Real', 'Gastos_Vida_Real', 'Cuota', 'Seguros', 'Gastos_Fijos', 'Flujo_Mensual', 'Ahorro_Disponible']
+        
+        # Mostramos los primeros 12 meses y el último
+        df_check = pd.concat([df_median_A.head(12), df_median_A.tail(1)])
+        
+        # Formateamos para que se lea bien
+        st.dataframe(
+            df_check[cols_check].style.format("{:,.2f} €"), 
+            use_container_width=True, 
+            height=400
+        )
+        
+        st.info("""
+        **Fórmula usada:**
+        Flujo Mensual = Ingresos - (Gastos Vida + Gastos Anuales/12) - (Cuota + Seguros + Gastos Fijos)
+        
+        *Nota: Si el Mes 1 tiene un ahorro negativo grande, suele ser por la Comisión de Apertura en 'Gastos_Fijos'.*
+        """)
+
 else:
     # VISTA INDIVIDUAL
     if hay_amortizacion:
@@ -910,3 +956,27 @@ else:
         fig_cf.add_hline(y=0, line_dash="dot", line_color="red", annotation_text="0 €")
         fig_cf.update_layout(height=350, template="plotly_white", yaxis_title="Saldo Total (€)")
         st.plotly_chart(fig_cf, use_container_width=True)
+        
+        st.divider()
+        st.subheader("🕵️‍♀️ Verificación de Cálculos (La prueba del algodón)")
+        st.caption("Revisa aquí los números exactos de los primeros meses para ver si cuadran.")
+        
+        # Seleccionamos columnas clave para mostrar
+        cols_check = ['Mes', 'Ingresos_Real', 'Gastos_Vida_Real', 'Cuota', 'Seguros', 'Gastos_Fijos', 'Flujo_Mensual', 'Ahorro_Disponible']
+        
+        # Mostramos los primeros 12 meses y el último
+        df_check = pd.concat([df_median_A.head(12), df_median_A.tail(1)])
+        
+        # Formateamos para que se lea bien
+        st.dataframe(
+            df_check[cols_check].style.format("{:,.2f} €"), 
+            use_container_width=True, 
+            height=400
+        )
+        
+        st.info("""
+        **Fórmula usada:**
+        Flujo Mensual = Ingresos - (Gastos Vida + Gastos Anuales/12) - (Cuota + Seguros + Gastos Fijos)
+        
+        *Nota: Si el Mes 1 tiene un ahorro negativo grande, suele ser por la Comisión de Apertura en 'Gastos_Fijos'.*
+        """)
