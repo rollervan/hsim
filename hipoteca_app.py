@@ -222,7 +222,7 @@ with st.sidebar:
         es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=True)
         meses_carencia = 0
         if es_autopromotor:
-            meses_carencia = st.number_input("Meses de Carencia", value=12, min_value=1, max_value=36)
+            meses_carencia = st.number_input("Meses de Carencia", value=11, min_value=1, max_value=36)
             st.caption("Durante la carencia pagas intereses y certificaciones.")
 
     st.markdown("---")
@@ -303,12 +303,12 @@ with st.sidebar:
             diferencial_A = st.number_input("Dif. Variable (%)", value=0.55, step=0.05)
         
         st.markdown("**Seguros y Gastos**")
-        s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=300)
-        s_vida_A = st.number_input("Seguro Vida (€/año)", value=300)
+        s_hogar_A = st.number_input("Seguro Hogar (€/año)", value=280)
+        s_vida_A = st.number_input("Seguro Vida (€/año)", value=188)
         apertura_A = st.number_input("Comisión Apertura (%)", value=0.0, step=0.1)
         cert_A = 0.0
         if es_autopromotor:
-            cert_A = st.number_input("Coste Certificación (€/mes)", value=300.0)
+            cert_A = st.number_input("Coste Certificación (€/mes)", value=30.0)
 
         modo_B, anios_B = modo_A, anios_A
         tipo_fijo_B, diferencial_B, anios_fijos_B = tipo_fijo_A, diferencial_A, anios_fijos_A
