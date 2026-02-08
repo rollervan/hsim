@@ -489,9 +489,9 @@ if n_sims > 1:
 
     # ================= NUEVO INICIO =================
     total_gastos_mensuales = g_comida + g_suministros + g_gasolina + g_otros
-df_median_A = calcular_cashflow(
-    df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
-)
+    df_median_A = calcular_cashflow(
+        df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
+    )
     # Calculamos Cashflow A
     df_median_A = calcular_cashflow(
         df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
