@@ -382,12 +382,12 @@ with st.sidebar:
 st.title("Simulador de Hipoteca PRO")
 
 with st.expander("Amortización Anticipada"):
-    st.info("Capital extra anual (Máx. 10.000€)")
+    st.info("Capital extra anual (Máx. 30.000€)")
     cols_a = st.columns(4) 
     amort_list = []
     max_anios_slider = max(anios_A, anios_B)
     for i in range(max_anios_slider):
-        val = cols_a[i % 4].slider(f"Año {i+1}", 0, 10000, 0, step=500, key=f"s_a{i}")
+        val = cols_a[i % 4].slider(f"Año {i+1}", 0, 30000, 0, step=500, key=f"s_a{i}")
         amort_list.append(val)
 
 hay_amortizacion = sum(amort_list) > 0
