@@ -487,22 +487,22 @@ if n_sims > 1:
         )
         df_median_B['Seguros'] = np.where(df_median_B['Saldo'] > 0, coste_mes_seguros_B, 0)
 
-    # ================= NUEVO INICIO =================
-    total_gastos_mensuales = g_comida + g_suministros + g_gasolina + g_otros
-    df_median_A = calcular_cashflow(
-        df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
+# ================= NUEVO INICIO =================
+total_gastos_mensuales = g_comida + g_suministros + g_gasolina + g_otros
+df_median_A = calcular_cashflow(
+    df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
+)
+# Calculamos Cashflow A
+df_median_A = calcular_cashflow(
+    df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
+)
+
+# Calculamos Cashflow B (si aplica)
+if comparar:
+    df_median_B = calcular_cashflow(
+        df_median_B, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
     )
-    # Calculamos Cashflow A
-    df_median_A = calcular_cashflow(
-        df_median_A, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
-    )
-    
-    # Calculamos Cashflow B (si aplica)
-    if comparar:
-        df_median_B = calcular_cashflow(
-            df_median_B, ingresos, total_gastos_mensuales, g_anuales, ahorro_inicial, ipc, subida_salarial
-        )
-    # ================= NUEVO FIN =================
+# ================= NUEVO FIN =================
 # KPIs Generales
 coste_A = df_median_A['Intereses'].sum() + df_median_A['Seguros'].sum() + df_median_A['Gastos_Fijos'].sum()
 meses_reales_A = len(df_median_A[df_median_A['Saldo'] > 1.0])
