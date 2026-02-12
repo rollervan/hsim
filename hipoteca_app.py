@@ -770,8 +770,8 @@ if comparar:
         # Seleccionamos columnas clave para mostrar
         cols_check = ['Mes', 'Ingresos_Real', 'Gastos_Vida_Real', 'Cuota', 'Seguros', 'Gastos_Fijos', 'Flujo_Mensual', 'Ahorro_Disponible']
         
-        # Mostramos los primeros 12 meses y el último
-        df_check = pd.concat([df_median_A.head(12), df_median_A.tail(1)])
+        # Mostramos TODOS los meses
+        df_check = df_median_A.copy()
         
         # Formateamos para que se lea bien
         st.dataframe(
