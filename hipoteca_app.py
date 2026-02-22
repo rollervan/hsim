@@ -350,7 +350,11 @@ def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
                 tipo_fijo_a, tipo_fijo_b, diferencial_a, diferencial_b,
                 coste_a, coste_b, meses_reales_a, meses_reales_b,
                 cuota_ini_a, cuota_ini_b, es_autopromotor, meses_carencia,
-                ingresos, precio_vivienda):
+                ingresos, precio_vivienda,
+                kpis_int_a=None, kpis_int_b=None,
+                df_base_a=None, tipo_reduc='Reducir PLAZO',
+                s_hogar_a=0, s_vida_a=0, s_hogar_b=0, s_vida_b=0,
+                apertura_a=0.0, g_anuales=0):
     """Genera un PDF de informe ejecutivo y devuelve los bytes.
     Todos los imports de reportlab son locales para evitar crash si no está instalado.
     """
@@ -360,7 +364,8 @@ def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
         from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                        TableStyle, Image as RLImage, HRFlowable, PageBreak)
+                                        TableStyle, Image as RLImage, HRFlowable, PageBreak,
+                                        KeepTogether)
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     except ImportError:
         raise ImportError(
@@ -372,275 +377,525 @@ def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
 
-    buf_pdf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf_pdf, pagesize=A4,
-        leftMargin=2*cm, rightMargin=2*cm,
-        topMargin=2*cm, bottomMargin=2*cm
-    )
-
-    styles = getSampleStyleSheet()
-    # Estilos personalizados
-    style_titulo = ParagraphStyle('Titulo', parent=styles['Title'],
-                                   fontSize=20, textColor=colors.HexColor('#0055aa'),
-                                   spaceAfter=6, alignment=TA_LEFT)
-    style_subtitulo = ParagraphStyle('Subtitulo', parent=styles['Normal'],
-                                      fontSize=10, textColor=colors.HexColor('#666666'),
-                                      spaceAfter=16)
-    style_h2 = ParagraphStyle('H2', parent=styles['Heading2'],
-                               fontSize=13, textColor=colors.HexColor('#0055aa'),
-                               spaceBefore=16, spaceAfter=6,
-                               borderPad=4)
-    style_normal = ParagraphStyle('Normal2', parent=styles['Normal'], fontSize=9, spaceAfter=4)
-    style_kpi_label = ParagraphStyle('KPILabel', parent=styles['Normal'],
-                                      fontSize=8, textColor=colors.HexColor('#888888'),
-                                      alignment=TA_CENTER)
-    style_kpi_value = ParagraphStyle('KPIValue', parent=styles['Normal'],
-                                      fontSize=16, textColor=colors.HexColor('#0055aa'),
-                                      alignment=TA_CENTER, fontName='Helvetica-Bold')
-    style_footer = ParagraphStyle('Footer', parent=styles['Normal'],
-                                   fontSize=7, textColor=colors.HexColor('#aaaaaa'),
-                                   alignment=TA_CENTER)
-
-    story = []
-
-    # ── CABECERA ──
-    fecha = datetime.date.today().strftime('%d/%m/%Y')
-    story.append(Paragraph("🏠 Simulador de Hipoteca PRO", style_titulo))
-    story.append(Paragraph(f"Informe ejecutivo generado el {fecha}", style_subtitulo))
-    story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#0055aa')))
-    story.append(Spacer(1, 12))
-
-    # ── PARÁMETROS ──
-    story.append(Paragraph("Parámetros del préstamo", style_h2))
-
-    def fila_param(label, val_a, val_b=None):
-        row = [Paragraph(f'<b>{label}</b>', style_normal),
-               Paragraph(str(val_a), style_normal)]
-        if comparar:
-            row.append(Paragraph(str(val_b) if val_b is not None else '—', style_normal))
-        return row
-
-    headers = [Paragraph('<b>Parámetro</b>', style_normal),
-               Paragraph('<b>Opción A</b>', style_normal)]
-    if comparar:
-        headers.append(Paragraph('<b>Opción B</b>', style_normal))
-
-    rows_param = [headers,
-                  fila_param('Capital', f'{capital:,.0f} €'),
-                  fila_param('Modalidad', modo_a, modo_b),
-                  fila_param('Plazo', fmt_t(anios_a * MESES_ANIO), fmt_t(anios_b * MESES_ANIO) if comparar else None),
-                  fila_param('Tipo inicial',
-                             f'{tipo_fijo_a:.2f}%' if modo_a == 'FIJA' else f'Eur+{diferencial_a:.2f}%',
-                             f'{tipo_fijo_b:.2f}%' if modo_b == 'FIJA' else f'Eur+{diferencial_b:.2f}%'),
-                  ]
-    if es_autopromotor:
-        rows_param.append(fila_param('Período carencia', f'{meses_carencia} meses'))
-
-    col_widths = [7*cm, 5*cm, 5*cm] if comparar else [9*cm, 7*cm]
-    t_param = Table(rows_param, colWidths=col_widths)
-    t_param.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e8f0fb')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f7f9fc')]),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-    ]))
-    story.append(t_param)
-    story.append(Spacer(1, 14))
-
-    # ── KPIs ──
-    story.append(Paragraph("Resultados clave", style_h2))
-
-    def kpi_cell(label, value, color='#0055aa'):
-        sty_v = ParagraphStyle('kv', parent=style_kpi_value,
-                               textColor=colors.HexColor(color))
-        return [Paragraph(value, sty_v), Paragraph(label, style_kpi_label)]
-
-    if comparar:
-        dif = abs(coste_b - coste_a)
-        mejor = 'A' if coste_a < coste_b else 'B'
-        kpi_data = [[
-            kpi_cell('Coste Total A', f'{coste_a:,.0f} €'),
-            kpi_cell('Coste Total B', f'{coste_b:,.0f} €', '#ff7f0e'),
-            kpi_cell(f'Ahorro con {mejor}', f'{dif:,.0f} €', '#2ca02c'),
-            kpi_cell('Cuota inicial A', f'{cuota_ini_a:,.0f} €'),
-            kpi_cell('Cuota inicial B', f'{cuota_ini_b:,.0f} €', '#ff7f0e'),
-        ]]
-        col_w_kpi = [3.4*cm] * 5
-    else:
-        kpi_data = [[
-            kpi_cell('Coste Total', f'{coste_a:,.0f} €'),
-            kpi_cell('Cuota Inicial', f'{cuota_ini_a:,.0f} €'),
-            kpi_cell('Plazo Real', fmt_t(meses_reales_a)),
-            kpi_cell('Ingresos mensuales', f'{ingresos:,.0f} €', '#5cb85c'),
-        ]]
-        col_w_kpi = [4.25*cm] * 4
-
-    t_kpi = Table(kpi_data, colWidths=col_w_kpi)
-    t_kpi.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#0055aa')),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dddddd')),
-        ('TOPPADDING', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f0f5ff')),
-    ]))
-    story.append(t_kpi)
-    story.append(Spacer(1, 14))
-
-    # ── GRÁFICOS ──
-    story.append(Paragraph("Evolución gráfica", style_h2))
-
-    def make_and_add_chart(fn):
-        """Genera un gráfico con matplotlib, lo incrusta en el PDF y cierra la figura."""
+    # ── HELPERS ──────────────────────────────────────────────────────────────
+    def add_chart(fn, w=17, h=5.0):
         fig = fn()
         buf = io.BytesIO()
         fig.savefig(buf, format='png', dpi=130, bbox_inches='tight')
         buf.seek(0)
         plt.close(fig)
-        story.append(RLImage(buf, width=17*cm, height=5.5*cm))
+        story.append(RLImage(buf, width=w*cm, height=h*cm))
+        story.append(Spacer(1, 6))
+
+    def simple_table(rows, col_widths, header_color='#0055aa', alt_color='#f0f5ff'):
+        t = Table(rows, colWidths=col_widths)
+        style = [
+            ('BACKGROUND',   (0, 0), (-1, 0),  colors.HexColor(header_color)),
+            ('TEXTCOLOR',    (0, 0), (-1, 0),  colors.white),
+            ('FONTNAME',     (0, 0), (-1, 0),  'Helvetica-Bold'),
+            ('ROWBACKGROUNDS',(0,1), (-1, -1), [colors.white, colors.HexColor(alt_color)]),
+            ('GRID',         (0, 0), (-1, -1), 0.4, colors.HexColor('#cccccc')),
+            ('FONTSIZE',     (0, 0), (-1, -1), 8),
+            ('ALIGN',        (1, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN',        (0, 0), (0, -1),  'LEFT'),
+            ('TOPPADDING',   (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING',(0, 0), (-1, -1), 4),
+            ('LEFTPADDING',  (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]
+        t.setStyle(TableStyle(style))
+        return t
+
+    def kpi_block(items):
+        """items = list of (label, value, color_hex)"""
+        n = len(items)
+        w = 17.0 / n
+        cells = [[Paragraph(v, ParagraphStyle('kv', parent=style_normal,
+                    fontSize=15, fontName='Helvetica-Bold',
+                    textColor=colors.HexColor(c), alignment=TA_CENTER)),
+                  Paragraph(l, ParagraphStyle('kl', parent=style_small,
+                    textColor=colors.HexColor('#666666'), alignment=TA_CENTER))]
+                 for l, v, c in items]
+        t = Table([cells], colWidths=[w*cm]*n)
+        t.setStyle(TableStyle([
+            ('BOX',         (0,0), (-1,-1), 1,   colors.HexColor('#0055aa')),
+            ('INNERGRID',   (0,0), (-1,-1), 0.4, colors.HexColor('#dddddd')),
+            ('BACKGROUND',  (0,0), (-1,-1),       colors.HexColor('#f4f8ff')),
+            ('TOPPADDING',  (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING',(0,0),(-1,-1), 10),
+            ('VALIGN',      (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        return t
+
+    def seccion(titulo, emoji=''):
+        story.append(Spacer(1, 10))
+        story.append(HRFlowable(width='100%', thickness=0.5, color=colors.HexColor('#cccccc')))
+        story.append(Paragraph(f"{emoji} {titulo}", style_h2))
+
+    # ── ESTILOS ──────────────────────────────────────────────────────────────
+    styles  = getSampleStyleSheet()
+    buf_pdf = io.BytesIO()
+    doc     = SimpleDocTemplate(buf_pdf, pagesize=A4,
+                                leftMargin=2*cm, rightMargin=2*cm,
+                                topMargin=2*cm,  bottomMargin=2*cm)
+    A4_W = 17  # usable width in cm
+
+    style_titulo  = ParagraphStyle('Titulo',  parent=styles['Title'],
+                                    fontSize=22, textColor=colors.HexColor('#0055aa'),
+                                    spaceAfter=4, alignment=TA_LEFT)
+    style_subtit  = ParagraphStyle('Subtit',  parent=styles['Normal'],
+                                    fontSize=9,  textColor=colors.HexColor('#888888'),
+                                    spaceAfter=12)
+    style_h2      = ParagraphStyle('H2',      parent=styles['Normal'],
+                                    fontSize=12, fontName='Helvetica-Bold',
+                                    textColor=colors.HexColor('#0055aa'),
+                                    spaceBefore=6, spaceAfter=6)
+    style_h3      = ParagraphStyle('H3',      parent=styles['Normal'],
+                                    fontSize=10, fontName='Helvetica-Bold',
+                                    textColor=colors.HexColor('#333333'),
+                                    spaceBefore=6, spaceAfter=4)
+    style_normal  = ParagraphStyle('N',       parent=styles['Normal'],
+                                    fontSize=9, spaceAfter=3)
+    style_small   = ParagraphStyle('S',       parent=styles['Normal'],
+                                    fontSize=7.5, spaceAfter=2)
+    style_italic  = ParagraphStyle('I',       parent=styles['Normal'],
+                                    fontSize=8, textColor=colors.HexColor('#666666'),
+                                    spaceAfter=6)
+    style_footer  = ParagraphStyle('Footer',  parent=styles['Normal'],
+                                    fontSize=7, textColor=colors.HexColor('#aaaaaa'),
+                                    alignment=TA_CENTER)
+    style_verde   = ParagraphStyle('V',       parent=style_normal,
+                                    textColor=colors.HexColor('#2ca02c'))
+    style_rojo    = ParagraphStyle('R',       parent=style_normal,
+                                    textColor=colors.HexColor('#d62728'))
+
+    story = []
+    fecha = datetime.date.today().strftime('%d/%m/%Y')
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PORTADA
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(Paragraph("Simulador de Hipoteca PRO", style_titulo))
+    modo_label = "Comparativa A vs B" if comparar else f"Modo {modo_a}"
+    story.append(Paragraph(f"Informe ejecutivo · {modo_label} · {fecha}", style_subtit))
+    story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#0055aa')))
+    story.append(Spacer(1, 8))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 1. PARÁMETROS DEL PRÉSTAMO
+    # ══════════════════════════════════════════════════════════════════════════
+    seccion("Parámetros del préstamo", "1.")
+
+    def tipo_str(modo, tf, df, af):
+        if modo == 'FIJA':    return f"Fija {tf:.2f}%"
+        if modo == 'VARIABLE': return f"Variable Eur+{df:.2f}%"
+        return f"Mixta {tf:.2f}% ({af}a) → Eur+{df:.2f}%"
+
+    def p(txt, st=None): return Paragraph(txt, st or style_normal)
+    def pb(txt):         return Paragraph(f'<b>{txt}</b>', style_normal)
+
+    if comparar:
+        param_rows = [
+            [pb('Parámetro'),          pb('Opción A'),                           pb('Opción B')],
+            [p('Capital'),             p(f'{capital:,.0f} €'),                   p(f'{capital:,.0f} €')],
+            [p('Plazo'),               p(fmt_t(anios_a*MESES_ANIO)),             p(fmt_t(anios_b*MESES_ANIO))],
+            [p('Modalidad / Tipo'),    p(tipo_str(modo_a,tipo_fijo_a,diferencial_a,0)),
+                                       p(tipo_str(modo_b,tipo_fijo_b,diferencial_b,0))],
+            [p('Seguro Hogar'),        p(f'{s_hogar_a:,.0f} €/año'),             p(f'{s_hogar_b:,.0f} €/año')],
+            [p('Seguro Vida'),         p(f'{s_vida_a:,.0f} €/año'),              p(f'{s_vida_b:,.0f} €/año')],
+            [p('Comisión Apertura'),   p(f'{apertura_a:.2f}%'),                  p('—')],
+        ]
+        cw = [5*cm, 6*cm, 6*cm]
+    else:
+        param_rows = [
+            [pb('Parámetro'),          pb('Valor')],
+            [p('Capital'),             p(f'{capital:,.0f} €')],
+            [p('Plazo'),               p(fmt_t(anios_a*MESES_ANIO))],
+            [p('Modalidad / Tipo'),    p(tipo_str(modo_a,tipo_fijo_a,diferencial_a,0))],
+            [p('Amortización'),        p(tipo_reduc)],
+            [p('Seguro Hogar'),        p(f'{s_hogar_a:,.0f} €/año')],
+            [p('Seguro Vida'),         p(f'{s_vida_a:,.0f} €/año')],
+            [p('Comisión Apertura'),   p(f'{apertura_a:.2f}%')],
+            [p('Ingresos netos'),      p(f'{ingresos:,.0f} €/mes')],
+            [p('Gastos anuales extra'),p(f'{g_anuales:,.0f} €/año')],
+        ]
+        if es_autopromotor:
+            param_rows.append([p('Período carencia'), p(f'{meses_carencia} meses')])
+        if precio_vivienda > 0:
+            param_rows.append([p('Valor vivienda'), p(f'{precio_vivienda:,.0f} €')])
+        cw = [7*cm, 10*cm]
+
+    story.append(simple_table(param_rows, cw))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 2. KPIs PRINCIPALES
+    # ══════════════════════════════════════════════════════════════════════════
+    seccion("Resultados clave", "2.")
+
+    val_int_a  = df_a['Intereses'].sum()
+    val_seg_a  = df_a.get('Seguros', pd.Series([0])).sum()
+    val_gas_a  = df_a['Gastos_Fijos'].sum()
+    ratio_esf  = (cuota_ini_a / ingresos * 100) if ingresos > 0 else 0
+    color_esf  = '#2ca02c' if ratio_esf <= 30 else ('#ff7f0e' if ratio_esf <= 35 else '#d62728')
+
+    if comparar:
+        val_int_b = df_b['Intereses'].sum()
+        val_seg_b = df_b.get('Seguros', pd.Series([0])).sum()
+        val_gas_b = df_b['Gastos_Fijos'].sum()
+        dif       = abs(coste_b - coste_a)
+        mejor     = 'A' if coste_a < coste_b else 'B'
+        story.append(kpi_block([
+            ('Coste Total A (Int+Seg+Gas)',  f'{coste_a:,.0f} €',   '#0055aa'),
+            ('Coste Total B (Int+Seg+Gas)',  f'{coste_b:,.0f} €',   '#ff7f0e'),
+            (f'Ahorro con Opción {mejor}',  f'{dif:,.0f} €',       '#2ca02c'),
+            ('Cuota inicial A',             f'{cuota_ini_a:,.0f} €','#0055aa'),
+            ('Cuota inicial B',             f'{cuota_ini_b:,.0f} €','#ff7f0e'),
+        ]))
         story.append(Spacer(1, 8))
+        story.append(kpi_block([
+            ('Plazo real A',     fmt_t(meses_reales_a), '#0055aa'),
+            ('Plazo real B',     fmt_t(meses_reales_b), '#ff7f0e'),
+            ('Intereses A',      f'{val_int_a:,.0f} €', '#0055aa'),
+            ('Intereses B',      f'{val_int_b:,.0f} €', '#ff7f0e'),
+        ]))
+        story.append(Spacer(1, 8))
+        # Veredicto
+        if dif > 1000:
+            verd = f"La Opción {mejor} es mejor: ahorra {dif:,.0f} € en el coste total."
+            story.append(Paragraph(f"<b>Veredicto:</b> {verd}", style_verde))
+        else:
+            story.append(Paragraph("<b>Veredicto:</b> Empate técnico (diferencia < 1.000 €).", style_italic))
+    else:
+        story.append(kpi_block([
+            ('Coste Total (Int+Seg+Gas)', f'{coste_a:,.0f} €',    '#0055aa'),
+            ('Solo Intereses',            f'{val_int_a:,.0f} €',   '#d9534f'),
+            ('Seguros totales',           f'{val_seg_a:,.0f} €',   '#8c564b'),
+            ('Cuota inicial',             f'{cuota_ini_a:,.0f} €', '#0055aa'),
+            ('Plazo real',                fmt_t(meses_reales_a),   '#5cb85c'),
+        ]))
+        story.append(Spacer(1, 8))
+        story.append(kpi_block([
+            ('Ratio de esfuerzo',  f'{ratio_esf:.1f}%',       color_esf),
+            ('Ingresos mensuales', f'{ingresos:,.0f} €/mes',  '#333333'),
+            ('Coste hip./mes',     f'{cuota_ini_a:,.0f} €/mes','#d9534f'),
+            ('Gastos apertura',    f'{val_gas_a:,.0f} €',     '#666666'),
+        ]))
+        umbral_txt = "✔ Por debajo del 30% — situación cómoda" if ratio_esf <= 30 \
+               else ("⚠ Entre 30–35% — límite bancario estándar" if ratio_esf <= 35 \
+               else  "✖ Por encima del 35% — riesgo de denegación")
+        story.append(Spacer(1,4))
+        story.append(Paragraph(f"Ratio de esfuerzo: {umbral_txt}", style_italic))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 3. EVOLUCIÓN DEL SALDO Y CUOTA
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(PageBreak())
+    seccion("Evolución del saldo y la cuota", "3.")
 
     def chart_saldo():
-        fig, ax = plt.subplots(figsize=(14, 4))
-        ax.plot(df_a['Mes'], df_a['Saldo'] / 1000, color='#0055aa', linewidth=2, label='Opción A')
+        fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+        ax1, ax2 = axes
+        # Saldo
+        ax1.plot(df_a['Mes'], df_a['Saldo']/1000, color='#0055aa', lw=2, label='Opción A')
         if df_b is not None:
-            ax.plot(df_b['Mes'], df_b['Saldo'] / 1000, color='#ff7f0e', linewidth=2,
-                    linestyle='--', label='Opción B')
-        ax.fill_between(df_a['Mes'], df_a['Saldo'] / 1000, alpha=0.15, color='#0055aa')
-        ax.set_title('Evolución del Saldo Pendiente', fontsize=11, fontweight='bold')
-        ax.set_xlabel('Mes', fontsize=9)
-        ax.set_ylabel('Saldo (miles €)', fontsize=9)
-        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
-        ax.legend(fontsize=8)
-        ax.grid(axis='y', alpha=0.3)
-        fig.tight_layout()
-        return fig
-
-    def chart_cuota():
-        fig, ax = plt.subplots(figsize=(14, 4))
-        ax.plot(df_a['Mes'], df_a['Cuota'], color='#d9534f', linewidth=2, label='Cuota A')
+            ax1.plot(df_b['Mes'], df_b['Saldo']/1000, color='#ff7f0e', lw=2, ls='--', label='Opción B')
+        ax1.fill_between(df_a['Mes'], df_a['Saldo']/1000, alpha=0.12, color='#0055aa')
+        if df_base_a is not None:
+            ax1.plot(df_base_a['Mes'], df_base_a['Saldo']/1000, color='gray', lw=1, ls=':', label='Sin amortizar')
+        ax1.set_title('Saldo pendiente (miles €)', fontsize=10, fontweight='bold')
+        ax1.set_xlabel('Mes', fontsize=8); ax1.set_ylabel('k€', fontsize=8)
+        ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x,_: f'{x:.0f}k'))
+        ax1.legend(fontsize=7); ax1.grid(axis='y', alpha=0.3)
+        # Cuota
+        ax2.plot(df_a['Mes'], df_a['Cuota'], color='#d9534f', lw=2, label='Cuota A')
         if df_b is not None:
-            ax.plot(df_b['Mes'], df_b['Cuota'], color='#ff7f0e', linewidth=2,
-                    linestyle='--', label='Cuota B')
+            ax2.plot(df_b['Mes'], df_b['Cuota'], color='#ff7f0e', lw=2, ls='--', label='Cuota B')
         if es_autopromotor and meses_carencia > 0:
-            ax.axvline(x=meses_carencia, color='gray', linestyle=':', linewidth=1.5, label='Fin Carencia')
-        ax.set_title('Cuota Mensual', fontsize=11, fontweight='bold')
-        ax.set_xlabel('Mes', fontsize=9)
-        ax.set_ylabel('€ / mes', fontsize=9)
-        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:,.0f} €'))
-        ax.legend(fontsize=8)
-        ax.grid(axis='y', alpha=0.3)
+            ax2.axvline(x=meses_carencia, color='gray', ls=':', lw=1.2, label='Fin Carencia')
+        ax2.set_title('Cuota mensual (€)', fontsize=10, fontweight='bold')
+        ax2.set_xlabel('Mes', fontsize=8); ax2.set_ylabel('€/mes', fontsize=8)
+        ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x,_: f'{x:,.0f}'))
+        ax2.legend(fontsize=7); ax2.grid(axis='y', alpha=0.3)
         fig.tight_layout()
         return fig
 
-    def chart_intereses():
-        fig, ax = plt.subplots(figsize=(14, 4))
-        ax.plot(df_a['Mes'], df_a['Intereses'].cumsum() / 1000, color='#0055aa', linewidth=2, label='Intereses A')
+    add_chart(chart_saldo, w=17, h=5.5)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 4. ANÁLISIS DE COSTES
+    # ══════════════════════════════════════════════════════════════════════════
+    seccion("Análisis de costes", "4.")
+
+    def chart_costes():
+        fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+        ax1, ax2 = axes
+        # Intereses acumulados
+        ax1.plot(df_a['Mes'], df_a['Intereses'].cumsum()/1000, color='#0055aa', lw=2, label='Intereses A')
         if df_b is not None:
-            ax.plot(df_b['Mes'], df_b['Intereses'].cumsum() / 1000, color='#ff7f0e', linewidth=2,
-                    linestyle='--', label='Intereses B')
-        ax.set_title('Intereses Acumulados', fontsize=11, fontweight='bold')
-        ax.set_xlabel('Mes', fontsize=9)
-        ax.set_ylabel('Miles €', fontsize=9)
-        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
-        ax.legend(fontsize=8)
-        ax.grid(axis='y', alpha=0.3)
+            ax1.plot(df_b['Mes'], df_b['Intereses'].cumsum()/1000, color='#ff7f0e', lw=2, ls='--', label='Intereses B')
+        if df_base_a is not None:
+            ax1.plot(df_base_a['Mes'], df_base_a['Intereses'].cumsum()/1000,
+                     color='gray', lw=1, ls=':', label='Sin amortizar (A)')
+        ax1.set_title('Intereses acumulados (miles €)', fontsize=10, fontweight='bold')
+        ax1.set_xlabel('Mes', fontsize=8); ax1.set_ylabel('k€', fontsize=8)
+        ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x,_: f'{x:.0f}k'))
+        ax1.legend(fontsize=7); ax1.grid(axis='y', alpha=0.3)
+        # Desglose costes por categoría — pastel
+        ax2.set_aspect('equal')
+        if comparar:
+            labels_a = ['Intereses A', 'Seguros A', 'Gastos A']
+            vals_a   = [max(0, val_int_a), max(0, val_seg_a), max(0, val_gas_a)]
+            labels_b = ['Intereses B', 'Seguros B', 'Gastos B']
+            vals_b   = [max(0, val_int_b), max(0, val_seg_b), max(0, val_gas_b)]
+            all_labels = labels_a + labels_b
+            all_vals   = vals_a + vals_b
+            palette    = ['#0055aa','#4488cc','#aaccee','#ff7f0e','#ffaa55','#ffddbb']
+            wedges, texts, autotexts = ax2.pie(
+                all_vals, labels=all_labels, autopct='%1.0f%%',
+                colors=palette, textprops={'fontsize':6}, startangle=90)
+        else:
+            labels = ['Intereses', 'Seguros', 'Gastos apertura']
+            vals   = [max(0, val_int_a), max(0, val_seg_a), max(0, val_gas_a)]
+            palette= ['#0055aa','#5cb85c','#f0ad4e']
+            ax2.pie(vals, labels=labels, autopct='%1.1f%%',
+                    colors=palette, textprops={'fontsize':8}, startangle=90)
+        ax2.set_title('Desglose del coste total', fontsize=10, fontweight='bold')
         fig.tight_layout()
         return fig
 
-    make_and_add_chart(chart_saldo)
-    make_and_add_chart(chart_cuota)
-    make_and_add_chart(chart_intereses)
+    add_chart(chart_costes, w=17, h=5.5)
 
-    # ── TABLA ANUAL ──
+    # Tabla resumen costes
+    if comparar:
+        cost_rows = [
+            [pb('Concepto'),          pb('Opción A'),          pb('Opción B'),          pb('Diferencia')],
+            [p('Intereses'),          p(f'{val_int_a:,.0f} €'), p(f'{val_int_b:,.0f} €'), p(f'{abs(val_int_b-val_int_a):,.0f} €')],
+            [p('Seguros'),            p(f'{val_seg_a:,.0f} €'), p(f'{val_seg_b:,.0f} €'), p(f'{abs(val_seg_b-val_seg_a):,.0f} €')],
+            [p('Gastos apertura'),    p(f'{val_gas_a:,.0f} €'), p(f'{val_gas_b:,.0f} €'), p(f'{abs(val_gas_b-val_gas_a):,.0f} €')],
+            [pb('TOTAL'),             pb(f'{coste_a:,.0f} €'),  pb(f'{coste_b:,.0f} €'),  pb(f'{abs(coste_b-coste_a):,.0f} €')],
+        ]
+        story.append(simple_table(cost_rows, [5*cm, 4*cm, 4*cm, 4*cm]))
+    else:
+        cost_rows = [
+            [pb('Concepto'),          pb('Total'),             pb('% del coste total')],
+            [p('Intereses'),          p(f'{val_int_a:,.0f} €'), p(f'{val_int_a/coste_a*100:.1f}%' if coste_a else '—')],
+            [p('Seguros'),            p(f'{val_seg_a:,.0f} €'), p(f'{val_seg_a/coste_a*100:.1f}%' if coste_a else '—')],
+            [p('Gastos apertura'),    p(f'{val_gas_a:,.0f} €'), p(f'{val_gas_a/coste_a*100:.1f}%' if coste_a else '—')],
+            [pb('TOTAL EXTRA (sobre capital)'), pb(f'{coste_a:,.0f} €'), pb(f'{coste_a/capital*100:.1f}%' if capital else '—')],
+        ]
+        story.append(simple_table(cost_rows, [7*cm, 5*cm, 5*cm]))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 5. ANÁLISIS DE RIESGO (Monte Carlo)
+    # ══════════════════════════════════════════════════════════════════════════
     story.append(PageBreak())
-    story.append(Paragraph("Resumen anual — Opción A", style_h2))
+    seccion("Análisis de riesgo (Monte Carlo)", "5.")
 
-    anual = agregar_por_anio(df_a)
-    col_names = ['Año', 'Cuota\nMedia €', 'Intereses €', 'Capital €',
-                 'Amort.\nExtra €', 'Seguros €', 'Saldo\nFinal €', 'Tasa %']
-    anual_rows = [col_names]
-    for _, r in anual.iterrows():
-        anual_rows.append([
-            str(int(r['Año'])),
-            f"{r['Cuota_Media']:,.0f}",
-            f"{r['Intereses']:,.0f}",
-            f"{r['Capital_Amortizado']:,.0f}",
-            f"{r['Amort_Extra']:,.0f}",
-            f"{r.get('Seguros', 0):,.0f}",
-            f"{r['Saldo_Final']:,.0f}",
-            f"{r['Tasa']:.2f}%",
-        ])
+    has_mc = kpis_int_a is not None and len(kpis_int_a) >= 10
 
-    t_anual = Table(anual_rows, colWidths=[1.5*cm, 2.3*cm, 2.3*cm, 2.3*cm,
-                                            2.3*cm, 2.3*cm, 2.3*cm, 1.7*cm])
-    t_anual.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0055aa')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f5ff')]),
-        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#cccccc')),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('LEFTPADDING', (0, 0), (-1, -1), 5),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    story.append(t_anual)
+    if not has_mc:
+        story.append(Paragraph(
+            "No hay datos de simulación Monte Carlo. Activa la opción 'Monte Carlo' "
+            "con al menos 50 simulaciones y regenera el informe.",
+            style_italic))
+    else:
+        arr_a = np.array(kpis_int_a)
+        p5a,  p25a, p50a, p75a, p95a = np.percentile(arr_a, [5, 25, 50, 75, 95])
+        rango_a = p95a - p5a
+
+        def chart_riesgo():
+            if comparar and kpis_int_b is not None:
+                fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+                ax1, ax2 = axes
+            else:
+                fig, ax1 = plt.subplots(figsize=(14, 4.5))
+                ax2 = None
+
+            # Histograma A
+            ax1.hist(arr_a/1000, bins=30, color='#0055aa', alpha=0.75, label='Opción A')
+            ax1.axvline(p5a/1000,  color='#2ca02c', ls='--', lw=1.5, label=f'P5 {p5a/1000:.1f}k€')
+            ax1.axvline(p50a/1000, color='#ff7f0e', ls='-',  lw=2,   label=f'P50 {p50a/1000:.1f}k€')
+            ax1.axvline(p95a/1000, color='#d62728', ls='--', lw=1.5, label=f'P95 {p95a/1000:.1f}k€')
+            ax1.set_title('Distribución coste total A (miles €)', fontsize=10, fontweight='bold')
+            ax1.set_xlabel('Coste total (k€)', fontsize=8)
+            ax1.set_ylabel('Frecuencia', fontsize=8)
+            ax1.legend(fontsize=7); ax1.grid(axis='y', alpha=0.3)
+
+            if ax2 is not None and kpis_int_b:
+                arr_b  = np.array(kpis_int_b)
+                p5b, p50b, p95b = np.percentile(arr_b, [5, 50, 95])
+                ax2.hist(arr_a/1000, bins=25, color='#0055aa', alpha=0.65, label='Opción A')
+                ax2.hist(arr_b/1000, bins=25, color='#ff7f0e', alpha=0.65, label='Opción B')
+                ax2.axvline(p50a/1000, color='#0055aa', ls='-', lw=2, label=f'Mediana A')
+                ax2.axvline(p50b/1000, color='#ff7f0e', ls='-', lw=2, label=f'Mediana B')
+                ax2.set_title('Comparativa distribuciones de coste', fontsize=10, fontweight='bold')
+                ax2.set_xlabel('Coste total (k€)', fontsize=8)
+                ax2.legend(fontsize=7); ax2.grid(axis='y', alpha=0.3)
+
+            fig.tight_layout()
+            return fig
+
+        add_chart(chart_riesgo, w=17, h=5.5)
+
+        # Tabla percentiles
+        def prow(pct, val_a, val_b=None):
+            row = [p(pct), p(f'{val_a:,.0f} €')]
+            if comparar and val_b is not None: row.append(p(f'{val_b:,.0f} €'))
+            return row
+
+        if comparar and kpis_int_b:
+            arr_b = np.array(kpis_int_b)
+            p5b,p25b,p50b,p75b,p95b = np.percentile(arr_b,[5,25,50,75,95])
+            hdr = [pb('Percentil'), pb('Coste A'), pb('Coste B')]
+            risk_rows = [hdr,
+                prow('P5  (mejor escenario)',  p5a,  p5b),
+                prow('P25',                    p25a, p25b),
+                prow('P50 (mediana)',           p50a, p50b),
+                prow('P75',                    p75a, p75b),
+                prow('P95 (peor escenario)',   p95a, p95b),
+                prow('Rango P95-P5 (exposición)',p95a-p5a, p95b-p5b),
+            ]
+            cw_r = [6*cm, 5.5*cm, 5.5*cm]
+        else:
+            hdr = [pb('Percentil'), pb('Coste total')]
+            risk_rows = [hdr,
+                [p('P5  (mejor escenario)'),  p(f'{p5a:,.0f} €')],
+                [p('P25'),                    p(f'{p25a:,.0f} €')],
+                [p('P50 (mediana)'),          p(f'{p50a:,.0f} €')],
+                [p('P75'),                    p(f'{p75a:,.0f} €')],
+                [p('P95 (peor escenario)'),   p(f'{p95a:,.0f} €')],
+                [p('Rango P95-P5'),           p(f'{rango_a:,.0f} €')],
+            ]
+            cw_r = [9*cm, 8*cm]
+
+        story.append(simple_table(risk_rows, cw_r))
+        story.append(Spacer(1, 6))
+
+        riesgo_txt = (
+            f"En el escenario mediano (P50) el coste total es de <b>{p50a:,.0f} €</b>. "
+            f"En el peor 5% de escenarios (P95) asciende a <b>{p95a:,.0f} €</b>, "
+            f"una exposición adicional de <b>{rango_a:,.0f} €</b> sobre el mejor caso (P5)."
+        )
+        story.append(Paragraph(riesgo_txt, style_italic))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 6. ANÁLISIS DE LIQUIDEZ
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(PageBreak())
+    seccion("Análisis de liquidez y flujo de caja", "6.")
+
+    has_cf = 'Flujo_Mensual' in df_a.columns and 'Ahorro_Disponible' in df_a.columns
+
+    if not has_cf:
+        story.append(Paragraph("Datos de flujo de caja no disponibles.", style_italic))
+    else:
+        saldo_final  = df_a['Ahorro_Disponible'].iloc[-1]
+        saldo_min    = df_a['Ahorro_Disponible'].min()
+        mes_min      = df_a.loc[df_a['Ahorro_Disponible'].idxmin(), 'Mes']
+        meses_neg    = (df_a['Flujo_Mensual'] < 0).sum()
+        flujo_med    = df_a['Flujo_Mensual'].median()
+
+        story.append(kpi_block([
+            ('Saldo final acumulado',      f'{saldo_final:,.0f} €',   '#2ca02c' if saldo_final >= 0 else '#d62728'),
+            ('Momento más crítico',        f'{saldo_min:,.0f} €',     '#d62728' if saldo_min < 0 else '#2ca02c'),
+            ('Mes del mínimo',             f'Mes {mes_min}',          '#666666'),
+            ('Meses con flujo negativo',   f'{meses_neg}',            '#d62728' if meses_neg > 12 else '#ff7f0e'),
+            ('Flujo mensual mediano',      f'{flujo_med:,.0f} €/mes', '#2ca02c' if flujo_med >= 0 else '#d62728'),
+        ]))
+        story.append(Spacer(1, 8))
+
+        def chart_liquidez():
+            fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+            ax1, ax2 = axes
+            # Flujo mensual
+            colors_bar = ['#2ca02c' if v >= 0 else '#d62728' for v in df_a['Flujo_Mensual']]
+            ax1.bar(df_a['Mes'], df_a['Flujo_Mensual'], color=colors_bar, width=1.0)
+            ax1.axhline(0, color='black', lw=0.8)
+            ax1.set_title('Flujo mensual (€)', fontsize=10, fontweight='bold')
+            ax1.set_xlabel('Mes', fontsize=8); ax1.set_ylabel('€', fontsize=8)
+            ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x,_: f'{x:,.0f}'))
+            ax1.grid(axis='y', alpha=0.3)
+            # Saldo acumulado
+            ax2.fill_between(df_a['Mes'], df_a['Ahorro_Disponible'],
+                             where=df_a['Ahorro_Disponible']>=0,
+                             color='#1f77b4', alpha=0.5, label='Positivo')
+            ax2.fill_between(df_a['Mes'], df_a['Ahorro_Disponible'],
+                             where=df_a['Ahorro_Disponible']<0,
+                             color='#d62728', alpha=0.5, label='Negativo')
+            ax2.plot(df_a['Mes'], df_a['Ahorro_Disponible'], color='#1f77b4', lw=1.5)
+            if df_b is not None and 'Ahorro_Disponible' in df_b.columns:
+                ax2.plot(df_b['Mes'], df_b['Ahorro_Disponible'],
+                         color='#ff7f0e', lw=1.5, ls='--', label='Saldo B')
+            ax2.axhline(0, color='red', lw=1, ls='--')
+            ax2.set_title('Saldo acumulado en cuenta (€)', fontsize=10, fontweight='bold')
+            ax2.set_xlabel('Mes', fontsize=8); ax2.set_ylabel('€', fontsize=8)
+            ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x,_: f'{x:,.0f}'))
+            ax2.legend(fontsize=7); ax2.grid(axis='y', alpha=0.3)
+            fig.tight_layout()
+            return fig
+
+        add_chart(chart_liquidez, w=17, h=5.5)
+
+        liq_txt = "⚠ El saldo cae por debajo de 0 en algún período." if saldo_min < 0 \
+             else "✔ El saldo en cuenta se mantiene positivo durante toda la vida del préstamo."
+        story.append(Paragraph(liq_txt, style_verde if saldo_min >= 0 else style_rojo))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 7. RESUMEN ANUAL
+    # ══════════════════════════════════════════════════════════════════════════
+    story.append(PageBreak())
+    seccion("Cuadro de amortización anual", "7.")
+
+    def tabla_anual(df, color_hdr):
+        anual = agregar_por_anio(df)
+        col_names = [pb('Año'), pb('Cuota\nMedia €'), pb('Intereses €'), pb('Capital €'),
+                     pb('Amort.\nExtra €'), pb('Seguros €'), pb('Saldo\nFinal €'), pb('Tasa %')]
+        rows = [col_names]
+        for _, r in anual.iterrows():
+            rows.append([
+                p(str(int(r['Año']))),
+                p(f"{r['Cuota_Media']:,.0f}"),
+                p(f"{r['Intereses']:,.0f}"),
+                p(f"{r['Capital_Amortizado']:,.0f}"),
+                p(f"{r['Amort_Extra']:,.0f}"),
+                p(f"{r.get('Seguros',0):,.0f}"),
+                p(f"{r['Saldo_Final']:,.0f}"),
+                p(f"{r['Tasa']:.2f}%"),
+            ])
+        cw = [1.2*cm, 2.4*cm, 2.4*cm, 2.4*cm, 2.2*cm, 2.2*cm, 2.4*cm, 1.8*cm]
+        return simple_table(rows, cw, header_color=color_hdr)
+
+    story.append(Paragraph("Opción A", style_h3))
+    story.append(tabla_anual(df_a, '#0055aa'))
 
     if comparar and df_b is not None:
-        story.append(Spacer(1, 14))
-        story.append(Paragraph("Resumen anual — Opción B", style_h2))
-        anual_b = agregar_por_anio(df_b)
-        anual_rows_b = [col_names]
-        for _, r in anual_b.iterrows():
-            anual_rows_b.append([
-                str(int(r['Año'])),
-                f"{r['Cuota_Media']:,.0f}",
-                f"{r['Intereses']:,.0f}",
-                f"{r['Capital_Amortizado']:,.0f}",
-                f"{r['Amort_Extra']:,.0f}",
-                f"{r.get('Seguros', 0):,.0f}",
-                f"{r['Saldo_Final']:,.0f}",
-                f"{r['Tasa']:.2f}%",
-            ])
-        t_anual_b = Table(anual_rows_b, colWidths=[1.5*cm, 2.3*cm, 2.3*cm, 2.3*cm,
-                                                    2.3*cm, 2.3*cm, 2.3*cm, 1.7*cm])
-        t_anual_b.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#ff7f0e')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fff5ec')]),
-            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#cccccc')),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 5),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        story.append(t_anual_b)
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("Opción B", style_h3))
+        story.append(tabla_anual(df_b, '#e07000'))
 
-    # ── FOOTER ──
+    # ══════════════════════════════════════════════════════════════════════════
+    # 8. NOTA LEGAL Y FOOTER
+    # ══════════════════════════════════════════════════════════════════════════
     story.append(Spacer(1, 20))
     story.append(HRFlowable(width='100%', thickness=0.5, color=colors.HexColor('#cccccc')))
     story.append(Spacer(1, 6))
     story.append(Paragraph(
-        f"Generado por Simulador de Hipoteca PRO · {fecha} · Solo orientativo, no constituye asesoramiento financiero.",
+        "Este informe tiene carácter meramente orientativo y no constituye asesoramiento financiero, "
+        "fiscal ni legal. Los cálculos se basan en los parámetros introducidos y en simulaciones "
+        "estocásticas del Euríbor (modelo de Vasicek). Consulta con un profesional antes de tomar "
+        "decisiones financieras.",
+        style_footer
+    ))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        f"Simulador de Hipoteca PRO · Generado el {fecha}",
         style_footer
     ))
 
     doc.build(story)
     buf_pdf.seek(0)
     return buf_pdf.getvalue()
+
 
 
 # ==========================================
@@ -1227,7 +1482,12 @@ if comparar:
                         meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_B,
                         cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_B,
                         es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
-                        ingresos=ingresos, precio_vivienda=precio_vivienda
+                        ingresos=ingresos, precio_vivienda=precio_vivienda,
+                        kpis_int_a=kpis_int_A, kpis_int_b=kpis_int_B,
+                        df_base_a=None, tipo_reduc=tipo_reduc,
+                        s_hogar_a=s_hogar_A, s_vida_a=s_vida_A,
+                        s_hogar_b=s_hogar_B, s_vida_b=s_vida_B,
+                        apertura_a=apertura_A, g_anuales=g_anuales
                     )
                 st.download_button(
                     label="⬇️ Descargar informe PDF",
@@ -1464,7 +1724,12 @@ else:
                         meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_A,
                         cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_A,
                         es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
-                        ingresos=ingresos, precio_vivienda=precio_vivienda
+                        ingresos=ingresos, precio_vivienda=precio_vivienda,
+                        kpis_int_a=kpis_int_A, kpis_int_b=None,
+                        df_base_a=df_base_median_A, tipo_reduc=tipo_reduc,
+                        s_hogar_a=s_hogar_A, s_vida_a=s_vida_A,
+                        s_hogar_b=s_hogar_A, s_vida_b=s_vida_A,
+                        apertura_a=apertura_A, g_anuales=g_anuales
                     )
                 st.download_button(
                     label="⬇️ Descargar informe PDF",
