@@ -4,20 +4,20 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import io
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import cm
-from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                 TableStyle, Image as RLImage, HRFlowable, PageBreak)
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import datetime
-import tempfile
-import os
+
+# Matplotlib: lazy-safe setup
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
+    MATPLOTLIB_OK = True
+except ImportError:
+    MATPLOTLIB_OK = False
+
+# Reportlab: fully lazy — imported only inside generar_pdf()
+REPORTLAB_OK = None  # None = not yet checked
 
 # ==========================================
 # CONSTANTES
@@ -346,66 +346,25 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
 # ==========================================
 # #8 GENERADOR DE INFORME PDF
 # ==========================================
-def fig_to_image(fig_plt, width_cm=16, height_cm=7):
-    """Guarda un figure de matplotlib en un buffer y devuelve un RLImage para reportlab."""
+def _make_chart(df_a, df_b, title, ylabel, fn_plot):
+    """Helper interno: crea un figure de matplotlib y devuelve bytes PNG."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
+    fig, ax = plt.subplots(figsize=(14, 4))
+    fn_plot(ax, df_a, df_b, mticker)
+    ax.set_title(title, fontsize=11, fontweight='bold')
+    ax.set_ylabel(ylabel, fontsize=9)
+    ax.set_xlabel('Mes', fontsize=9)
+    ax.grid(axis='y', alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
     buf = io.BytesIO()
-    fig_plt.savefig(buf, format='png', dpi=130, bbox_inches='tight')
+    fig.savefig(buf, format='png', dpi=130, bbox_inches='tight')
     buf.seek(0)
+    plt.close(fig)
     return buf
-
-
-def df_to_mpl_chart_saldo(df_a, df_b=None, label_a='Hipoteca'):
-    """Gráfico matplotlib de evolución del saldo."""
-    fig, ax = plt.subplots(figsize=(14, 4))
-    ax.plot(df_a['Mes'], df_a['Saldo'] / 1000, color='#0055aa', linewidth=2, label=label_a)
-    if df_b is not None:
-        ax.plot(df_b['Mes'], df_b['Saldo'] / 1000, color='#ff7f0e', linewidth=2,
-                linestyle='--', label='Opción B')
-    ax.fill_between(df_a['Mes'], df_a['Saldo'] / 1000, alpha=0.15, color='#0055aa')
-    ax.set_xlabel('Mes', fontsize=9)
-    ax.set_ylabel('Saldo (miles €)', fontsize=9)
-    ax.set_title('Evolución del Saldo Pendiente', fontsize=11, fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
-    ax.grid(axis='y', alpha=0.3)
-    fig.tight_layout()
-    return fig
-
-
-def df_to_mpl_chart_cuota(df_a, df_b=None, meses_carencia=0):
-    """Gráfico matplotlib de cuota mensual."""
-    fig, ax = plt.subplots(figsize=(14, 4))
-    ax.plot(df_a['Mes'], df_a['Cuota'], color='#d9534f', linewidth=2, label='Cuota A')
-    if df_b is not None:
-        ax.plot(df_b['Mes'], df_b['Cuota'], color='#ff7f0e', linewidth=2,
-                linestyle='--', label='Cuota B')
-    if meses_carencia > 0:
-        ax.axvline(x=meses_carencia, color='gray', linestyle=':', linewidth=1.5, label='Fin Carencia')
-    ax.set_xlabel('Mes', fontsize=9)
-    ax.set_ylabel('€ / mes', fontsize=9)
-    ax.set_title('Cuota Mensual', fontsize=11, fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:,.0f} €'))
-    ax.grid(axis='y', alpha=0.3)
-    fig.tight_layout()
-    return fig
-
-
-def df_to_mpl_chart_intereses(df_a, df_b=None):
-    """Gráfico matplotlib de intereses acumulados."""
-    fig, ax = plt.subplots(figsize=(14, 4))
-    ax.plot(df_a['Mes'], df_a['Intereses'].cumsum() / 1000, color='#0055aa', linewidth=2, label='Intereses A')
-    if df_b is not None:
-        ax.plot(df_b['Mes'], df_b['Intereses'].cumsum() / 1000, color='#ff7f0e', linewidth=2,
-                linestyle='--', label='Intereses B')
-    ax.set_xlabel('Mes', fontsize=9)
-    ax.set_ylabel('Miles €', fontsize=9)
-    ax.set_title('Intereses Acumulados', fontsize=11, fontweight='bold')
-    ax.legend(fontsize=8)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
-    ax.grid(axis='y', alpha=0.3)
-    fig.tight_layout()
-    return fig
 
 
 def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
@@ -413,7 +372,26 @@ def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
                 coste_a, coste_b, meses_reales_a, meses_reales_b,
                 cuota_ini_a, cuota_ini_b, es_autopromotor, meses_carencia,
                 ingresos, precio_vivienda):
-    """Genera un PDF de informe ejecutivo y devuelve los bytes."""
+    """Genera un PDF de informe ejecutivo y devuelve los bytes.
+    Todos los imports de reportlab son locales para evitar crash si no está instalado.
+    """
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                        TableStyle, Image as RLImage, HRFlowable, PageBreak)
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    except ImportError:
+        raise ImportError(
+            "reportlab no está instalado. Añade 'reportlab' a tu requirements.txt y redespliega la app."
+        )
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
 
     buf_pdf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1207,27 +1185,31 @@ if comparar:
         st.subheader("📄 Exportar Informe PDF")
         st.markdown("Genera un informe ejecutivo con KPIs, gráficos y tabla anual, listo para imprimir o compartir.")
         if st.button("📄 Generar informe PDF", type="primary", key="pdf_comp"):
-            with st.spinner("Generando PDF..."):
-                pdf_bytes = generar_pdf(
-                    df_median_A, df_median_B, comparar=True,
-                    capital=capital_init_global,
-                    anios_a=anios_A, anios_b=anios_B,
-                    modo_a=modo_A, modo_b=modo_B,
-                    tipo_fijo_a=tipo_fijo_A, tipo_fijo_b=tipo_fijo_B,
-                    diferencial_a=diferencial_A, diferencial_b=diferencial_B,
-                    coste_a=coste_A, coste_b=coste_B,
-                    meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_B,
-                    cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_B,
-                    es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
-                    ingresos=ingresos, precio_vivienda=precio_vivienda
+            try:
+                with st.spinner("Generando PDF..."):
+                    pdf_bytes = generar_pdf(
+                        df_median_A, df_median_B, comparar=True,
+                        capital=capital_init_global,
+                        anios_a=anios_A, anios_b=anios_B,
+                        modo_a=modo_A, modo_b=modo_B,
+                        tipo_fijo_a=tipo_fijo_A, tipo_fijo_b=tipo_fijo_B,
+                        diferencial_a=diferencial_A, diferencial_b=diferencial_B,
+                        coste_a=coste_A, coste_b=coste_B,
+                        meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_B,
+                        cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_B,
+                        es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
+                        ingresos=ingresos, precio_vivienda=precio_vivienda
+                    )
+                st.download_button(
+                    label="⬇️ Descargar informe PDF",
+                    data=pdf_bytes,
+                    file_name=f"informe_hipoteca_{datetime.date.today()}.pdf",
+                    mime="application/pdf"
                 )
-            st.download_button(
-                label="⬇️ Descargar informe PDF",
-                data=pdf_bytes,
-                file_name=f"informe_hipoteca_{datetime.date.today()}.pdf",
-                mime="application/pdf"
-            )
-            st.success("✅ PDF generado. Pulsa el botón de arriba para descargarlo.")
+                st.success("✅ PDF generado. Pulsa el botón de arriba para descargarlo.")
+            except ImportError as e:
+                st.error(str(e))
+                st.markdown("Añade `reportlab` a tu **requirements.txt** y redespliega la app.")
 
 else:
     # ─── VISTA INDIVIDUAL ───
@@ -1440,24 +1422,28 @@ else:
         st.subheader("📄 Exportar Informe PDF")
         st.markdown("Genera un informe ejecutivo con KPIs, gráficos y tabla anual, listo para imprimir o compartir.")
         if st.button("📄 Generar informe PDF", type="primary", key="pdf_indiv"):
-            with st.spinner("Generando PDF..."):
-                pdf_bytes = generar_pdf(
-                    df_median_A, None, comparar=False,
-                    capital=capital_init_global,
-                    anios_a=anios_A, anios_b=anios_A,
-                    modo_a=modo_A, modo_b=modo_A,
-                    tipo_fijo_a=tipo_fijo_A, tipo_fijo_b=tipo_fijo_A,
-                    diferencial_a=diferencial_A, diferencial_b=diferencial_A,
-                    coste_a=coste_A, coste_b=coste_A,
-                    meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_A,
-                    cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_A,
-                    es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
-                    ingresos=ingresos, precio_vivienda=precio_vivienda
+            try:
+                with st.spinner("Generando PDF..."):
+                    pdf_bytes = generar_pdf(
+                        df_median_A, None, comparar=False,
+                        capital=capital_init_global,
+                        anios_a=anios_A, anios_b=anios_A,
+                        modo_a=modo_A, modo_b=modo_A,
+                        tipo_fijo_a=tipo_fijo_A, tipo_fijo_b=tipo_fijo_A,
+                        diferencial_a=diferencial_A, diferencial_b=diferencial_A,
+                        coste_a=coste_A, coste_b=coste_A,
+                        meses_reales_a=meses_reales_A, meses_reales_b=meses_reales_A,
+                        cuota_ini_a=cuota_ini_A, cuota_ini_b=cuota_ini_A,
+                        es_autopromotor=es_autopromotor, meses_carencia=meses_carencia,
+                        ingresos=ingresos, precio_vivienda=precio_vivienda
+                    )
+                st.download_button(
+                    label="⬇️ Descargar informe PDF",
+                    data=pdf_bytes,
+                    file_name=f"informe_hipoteca_{datetime.date.today()}.pdf",
+                    mime="application/pdf"
                 )
-            st.download_button(
-                label="⬇️ Descargar informe PDF",
-                data=pdf_bytes,
-                file_name=f"informe_hipoteca_{datetime.date.today()}.pdf",
-                mime="application/pdf"
-            )
-            st.success("✅ PDF generado. Pulsa el botón de arriba para descargarlo.")
+                st.success("✅ PDF generado. Pulsa el botón de arriba para descargarlo.")
+            except ImportError as e:
+                st.error(str(e))
+                st.markdown("Añade `reportlab` a tu **requirements.txt** y redespliega la app.")
