@@ -402,10 +402,10 @@ with st.sidebar:
     comparar = st.checkbox("Comparar dos opciones", value=False)
 
     with st.expander("Datos Económicos y Proyecto", expanded=True):
-        ingresos = st.number_input("Ingresos netos (€)", value=2500, step=100)
+        ingresos = st.number_input("Ingresos netos (€)", value=2700, step=100)
         ahorro_inicial = st.number_input("Ahorro inicial (€)", value=0, step=1000)
         precio_vivienda = st.number_input("Valor Vivienda (€)", value=0, step=5000)
-        capital_init_global = st.number_input("Importe Hipoteca (€)", value=180000, step=1000)
+        capital_init_global = st.number_input("Importe Hipoteca (€)", value=170000, step=1000)
 
         st.markdown("---")
         es_autopromotor = st.checkbox("Es Autopromoción (Obra)", value=True)
