@@ -191,13 +191,16 @@ def calcular_hipoteca_core(capital, anios, diferencial, tipo_fijo, anios_fijos, 
 
 
 @st.cache_data(show_spinner=False)
-def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100):
-    """Simulación de Monte Carlo del Euríbor con modelo de Vasicek."""
+def simular_vasicek(r0, theta, kappa, sigma, anios, n_sims=100, seed=None):
+    """Simulación de Monte Carlo del Euríbor con modelo de Vasicek.
+    Si seed no es None, fija la semilla para resultados reproducibles.
+    """
+    rng = np.random.default_rng(seed)
     sims = []
     for _ in range(n_sims):
         camino = [r0]
         for _ in range(anios - 1):
-            dr = kappa * (theta - camino[-1]) + sigma * np.random.normal()
+            dr = kappa * (theta - camino[-1]) + sigma * rng.standard_normal()
             camino.append(max(-1.0, camino[-1] + dr))
         sims.append(camino)
     return np.array(sims)
@@ -508,6 +511,7 @@ with st.sidebar:
             modo_prev = st.selectbox("Método", ["Monte Carlo (Simulación)", "Manual"])
             if modo_prev == "Monte Carlo (Simulación)":
                 n_sims = st.select_slider("Simulaciones", [50, 100, 500, 1000], value=100)
+                seed_fija = st.checkbox("🔒 Seed fija (resultados reproducibles)", value=True)
                 st.caption("Ajustes Mercado")
                 theta = st.slider("Media L/P", 0.0, 5.0, 2.25)
                 sigma = st.slider("Volatilidad", 0.0, 2.0, 0.60)
@@ -515,6 +519,7 @@ with st.sidebar:
                 r0 = st.number_input("Euríbor Hoy", value=2.24)
             else:
                 n_sims = 1
+                seed_fija = True
 
             if modo_prev == "Manual":
                 eur_list = []
@@ -524,10 +529,14 @@ with st.sidebar:
                         eur_list.append(st.number_input(f"A{i+1}", value=2.2, step=0.1, key=f"e{i}"))
                 caminos_eur = [eur_list]
             else:
-                caminos_eur = simular_vasicek(r0, theta, kappa, sigma, max_anios, n_sims)
+                caminos_eur = simular_vasicek(
+                    r0, theta, kappa, sigma, max_anios, n_sims,
+                    seed=42 if seed_fija else None
+                )
     else:
         caminos_eur = [[0.0] * max_anios]
         n_sims = 1
+        seed_fija = True
 
 
 # ==========================================
@@ -546,8 +555,36 @@ for alerta in alertas:
 # ==========================================
 # AMORTIZACIÓN ANTICIPADA
 # ==========================================
+# Calculamos el saldo de referencia para ajustar los sliders ANTES de renderizarlos.
+# Usamos el camino mediano del Euríbor como referencia.
+camino_ref = tuple(caminos_eur[len(caminos_eur) // 2]) if len(caminos_eur) > 1 else tuple(caminos_eur[0])
+
+# Leemos los valores actuales de session_state (o 0 si no existen aún)
+amort_bruta = [st.session_state.get(f"s_a{i}", 0) for i in range(max_anios)]
+
+# Calculamos la versión ajustada para la opción A (usada como referencia para los sliders)
+amort_list_A_preview = ajustar_amortizaciones(
+    capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
+    modo_A, camino_ref, amort_bruta, tipo_reduc, es_autopromotor, meses_carencia
+)
+
+# Si algún valor fue recortado, forzamos el session_state al valor ajustado
+# ANTES de que los sliders se rendericen en esta pasada.
+for i, (orig, adj) in enumerate(zip(amort_bruta, amort_list_A_preview)):
+    if orig != adj:
+        st.session_state[f"s_a{i}"] = adj
+
 with st.expander("Amortización Anticipada"):
     st.info(f"Capital extra anual (Máx. {MAX_AMORT_ANUAL:,} €)")
+    hubo_ajuste = any(o != a for o, a in zip(amort_bruta, amort_list_A_preview))
+    if hubo_ajuste:
+        años_ajustados = [i+1 for i, (o, a) in enumerate(zip(amort_bruta, amort_list_A_preview)) if o != a]
+        años_texto = ", ".join(f"Año {a}" for a in años_ajustados)
+        st.info(
+            f"ℹ️ **Sliders ajustados automáticamente** en **{años_texto}**: "
+            f"el importe solicitado superaba el saldo pendiente, así que se ha recortado "
+            f"al máximo amortizable y los años posteriores se han puesto a 0."
+        )
     cols_a = st.columns(4)
     amort_list = []
     for i in range(max_anios):
@@ -556,10 +593,7 @@ with st.expander("Amortización Anticipada"):
 
 hay_amortizacion = sum(amort_list) > 0
 
-# Pre-ajustamos las amortizaciones al saldo real para la opción A y B
-# Usamos el camino mediano del Euríbor (o el único camino si es manual/fija)
-camino_ref = tuple(caminos_eur[len(caminos_eur) // 2]) if len(caminos_eur) > 1 else tuple(caminos_eur[0])
-
+# Ajuste final con los valores definitivos de los sliders (ya corregidos)
 amort_list_A = ajustar_amortizaciones(
     capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
     modo_A, camino_ref, amort_list, tipo_reduc, es_autopromotor, meses_carencia
@@ -568,17 +602,6 @@ amort_list_B = ajustar_amortizaciones(
     capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B,
     modo_B, camino_ref, amort_list, tipo_reduc, es_autopromotor, meses_carencia
 ) if comparar else amort_list_A
-
-# Aviso al usuario si alguna amortización fue recortada
-if hay_amortizacion:
-    recortes_A = [i+1 for i, (orig, adj) in enumerate(zip(amort_list, amort_list_A)) if orig != adj]
-    if recortes_A:
-        años_texto = ", ".join(f"Año {a}" for a in recortes_A)
-        st.info(
-            f"ℹ️ **Amortización ajustada automáticamente**: Los años **{años_texto}** han sido "
-            f"recortados porque el importe solicitado superaba el saldo pendiente en ese momento. "
-            f"El resto de años posteriores se han puesto a 0."
-        )
 
 # ==========================================
 # BUCLE DE SIMULACIÓN
