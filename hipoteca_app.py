@@ -247,6 +247,71 @@ def calcular_cashflow(df_hipoteca, ingresos_mensuales, gastos_men_base,
     return df
 
 
+def ajustar_amortizaciones(capital: float, anios: int, diferencial: float, tipo_fijo: float,
+                           anios_fijos: int, modo: str, euribor_puntos,
+                           amortizaciones: list, tipo_reduc: str,
+                           es_autopromotor: bool, meses_carencia: int) -> list:
+    """
+    Recorre el plan de amortización año a año estimando el saldo pendiente al final
+    de cada año (solo cuotas ordinarias, sin amortizaciones extra aún).
+    Cuando la amortización programada de un año supera el saldo real disponible,
+    la recorta al máximo posible y pone a cero todos los años siguientes.
+    Devuelve la lista de amortizaciones corregida.
+    """
+    # Estimación rápida del saldo al final de cada año usando solo cuotas ordinarias
+    saldo = float(capital) if not es_autopromotor else float(capital)  # peor caso: capital completo
+    puntos_eur = list(euribor_puntos) + [euribor_puntos[-1]] * max(0, anios - len(euribor_puntos))
+    amort_ajustada = []
+    hipoteca_saldada = False
+
+    for anio in range(anios):
+        if hipoteca_saldada or saldo <= UMBRAL_SALDO:
+            amort_ajustada.append(0)
+            continue
+
+        # Tasa del año
+        if modo == 'FIJA':
+            tasa_anual = tipo_fijo
+        elif modo == 'VARIABLE':
+            tasa_anual = puntos_eur[anio] + diferencial
+        else:
+            tasa_anual = tipo_fijo if anio < anios_fijos else puntos_eur[anio] + diferencial
+        tasa_mensual = (max(0, tasa_anual) / 100) / MESES_ANIO
+
+        # Amortización ordinaria del año (12 cuotas)
+        meses_restantes_inicio = (anios - anio) * MESES_ANIO
+        for _ in range(MESES_ANIO):
+            if saldo <= UMBRAL_SALDO:
+                break
+            if tasa_mensual > 0:
+                try:
+                    cuota = saldo * (tasa_mensual * (1 + tasa_mensual) ** meses_restantes_inicio) / \
+                            ((1 + tasa_mensual) ** meses_restantes_inicio - 1)
+                except Exception:
+                    cuota = saldo / meses_restantes_inicio
+            else:
+                cuota = saldo / meses_restantes_inicio
+            interes_m = saldo * tasa_mensual
+            capital_m = min(cuota - interes_m, saldo)
+            saldo = round(max(0.0, saldo - capital_m), 2)
+            meses_restantes_inicio -= 1
+
+        # Amortización extra del año
+        solicitada = amortizaciones[anio] if anio < len(amortizaciones) else 0
+        if solicitada <= 0 or saldo <= UMBRAL_SALDO:
+            amort_ajustada.append(0)
+        elif solicitada >= saldo:
+            # Recortar al saldo disponible y marcar como saldada
+            amort_ajustada.append(round(saldo, 2))
+            saldo = 0.0
+            hipoteca_saldada = True
+        else:
+            amort_ajustada.append(solicitada)
+            saldo = round(saldo - solicitada, 2)
+
+    return amort_ajustada
+
+
 def agregar_por_anio(df: pd.DataFrame) -> pd.DataFrame:
     """Genera un resumen anual del cuadro de amortización."""
     return df.groupby('Año').agg(
@@ -491,6 +556,30 @@ with st.expander("Amortización Anticipada"):
 
 hay_amortizacion = sum(amort_list) > 0
 
+# Pre-ajustamos las amortizaciones al saldo real para la opción A y B
+# Usamos el camino mediano del Euríbor (o el único camino si es manual/fija)
+camino_ref = tuple(caminos_eur[len(caminos_eur) // 2]) if len(caminos_eur) > 1 else tuple(caminos_eur[0])
+
+amort_list_A = ajustar_amortizaciones(
+    capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
+    modo_A, camino_ref, amort_list, tipo_reduc, es_autopromotor, meses_carencia
+)
+amort_list_B = ajustar_amortizaciones(
+    capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B,
+    modo_B, camino_ref, amort_list, tipo_reduc, es_autopromotor, meses_carencia
+) if comparar else amort_list_A
+
+# Aviso al usuario si alguna amortización fue recortada
+if hay_amortizacion:
+    recortes_A = [i+1 for i, (orig, adj) in enumerate(zip(amort_list, amort_list_A)) if orig != adj]
+    if recortes_A:
+        años_texto = ", ".join(f"Año {a}" for a in recortes_A)
+        st.info(
+            f"ℹ️ **Amortización ajustada automáticamente**: Los años **{años_texto}** han sido "
+            f"recortados porque el importe solicitado superaba el saldo pendiente en ese momento. "
+            f"El resto de años posteriores se han puesto a 0."
+        )
+
 # ==========================================
 # BUCLE DE SIMULACIÓN
 # ==========================================
@@ -513,7 +602,7 @@ for i, camino in enumerate(caminos_eur):
 
     df_A = calcular_hipoteca_core(
         capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-        modo_A, camino_tuple, tuple(amort_list), tipo_reduc,
+        modo_A, camino_tuple, tuple(amort_list_A), tipo_reduc,
         es_autopromotor, meses_carencia, apertura_A, cert_A
     )
 
@@ -541,7 +630,7 @@ for i, camino in enumerate(caminos_eur):
     if comparar:
         df_B = calcular_hipoteca_core(
             capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B,
-            modo_B, camino_tuple, tuple(amort_list), tipo_reduc,
+            modo_B, camino_tuple, tuple(amort_list_B), tipo_reduc,
             es_autopromotor, meses_carencia, apertura_B, cert_B
         )
         df_B['Seguros'] = np.where(df_B['Saldo'] > 0, coste_mes_seguros_B, 0)
@@ -570,7 +659,7 @@ if n_sims > 1:
 
     df_median_A = calcular_hipoteca_core(
         capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-        modo_A, camino_med, tuple(amort_list), tipo_reduc,
+        modo_A, camino_med, tuple(amort_list_A), tipo_reduc,
         es_autopromotor, meses_carencia, apertura_A, cert_A
     )
     df_median_A['Seguros'] = np.where(df_median_A['Saldo'] > 0, coste_mes_seguros_A, 0)
@@ -589,7 +678,7 @@ if n_sims > 1:
     if comparar:
         df_median_B = calcular_hipoteca_core(
             capital_init_global, anios_B, diferencial_B, tipo_fijo_B, anios_fijos_B,
-            modo_B, camino_med, tuple(amort_list), tipo_reduc,
+            modo_B, camino_med, tuple(amort_list_B), tipo_reduc,
             es_autopromotor, meses_carencia, apertura_B, cert_B
         )
         df_median_B['Seguros'] = np.where(df_median_B['Saldo'] > 0, coste_mes_seguros_B, 0)
