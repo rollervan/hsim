@@ -346,27 +346,6 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
 # ==========================================
 # #8 GENERADOR DE INFORME PDF
 # ==========================================
-def _make_chart(df_a, df_b, title, ylabel, fn_plot):
-    """Helper interno: crea un figure de matplotlib y devuelve bytes PNG."""
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import matplotlib.ticker as mticker
-    fig, ax = plt.subplots(figsize=(14, 4))
-    fn_plot(ax, df_a, df_b, mticker)
-    ax.set_title(title, fontsize=11, fontweight='bold')
-    ax.set_ylabel(ylabel, fontsize=9)
-    ax.set_xlabel('Mes', fontsize=9)
-    ax.grid(axis='y', alpha=0.3)
-    ax.legend(fontsize=8)
-    fig.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=130, bbox_inches='tight')
-    buf.seek(0)
-    plt.close(fig)
-    return buf
-
-
 def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
                 tipo_fijo_a, tipo_fijo_b, diferencial_a, diferencial_b,
                 coste_a, coste_b, meses_reales_a, meses_reales_b,
@@ -516,17 +495,67 @@ def generar_pdf(df_a, df_b, comparar, capital, anios_a, anios_b, modo_a, modo_b,
     # ── GRÁFICOS ──
     story.append(Paragraph("Evolución gráfica", style_h2))
 
-    def add_chart(fig_mpl):
-        buf = fig_to_image(fig_mpl)
-        img = RLImage(buf, width=17*cm, height=5.5*cm)
-        story.append(img)
+    def make_and_add_chart(fn):
+        """Genera un gráfico con matplotlib, lo incrusta en el PDF y cierra la figura."""
+        fig = fn()
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=130, bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        story.append(RLImage(buf, width=17*cm, height=5.5*cm))
         story.append(Spacer(1, 8))
-        plt.close(fig_mpl)
 
-    add_chart(df_to_mpl_chart_saldo(df_a, df_b if comparar else None))
-    add_chart(df_to_mpl_chart_cuota(df_a, df_b if comparar else None,
-                                    meses_carencia if es_autopromotor else 0))
-    add_chart(df_to_mpl_chart_intereses(df_a, df_b if comparar else None))
+    def chart_saldo():
+        fig, ax = plt.subplots(figsize=(14, 4))
+        ax.plot(df_a['Mes'], df_a['Saldo'] / 1000, color='#0055aa', linewidth=2, label='Opción A')
+        if df_b is not None:
+            ax.plot(df_b['Mes'], df_b['Saldo'] / 1000, color='#ff7f0e', linewidth=2,
+                    linestyle='--', label='Opción B')
+        ax.fill_between(df_a['Mes'], df_a['Saldo'] / 1000, alpha=0.15, color='#0055aa')
+        ax.set_title('Evolución del Saldo Pendiente', fontsize=11, fontweight='bold')
+        ax.set_xlabel('Mes', fontsize=9)
+        ax.set_ylabel('Saldo (miles €)', fontsize=9)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
+        ax.legend(fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+        return fig
+
+    def chart_cuota():
+        fig, ax = plt.subplots(figsize=(14, 4))
+        ax.plot(df_a['Mes'], df_a['Cuota'], color='#d9534f', linewidth=2, label='Cuota A')
+        if df_b is not None:
+            ax.plot(df_b['Mes'], df_b['Cuota'], color='#ff7f0e', linewidth=2,
+                    linestyle='--', label='Cuota B')
+        if es_autopromotor and meses_carencia > 0:
+            ax.axvline(x=meses_carencia, color='gray', linestyle=':', linewidth=1.5, label='Fin Carencia')
+        ax.set_title('Cuota Mensual', fontsize=11, fontweight='bold')
+        ax.set_xlabel('Mes', fontsize=9)
+        ax.set_ylabel('€ / mes', fontsize=9)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:,.0f} €'))
+        ax.legend(fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+        return fig
+
+    def chart_intereses():
+        fig, ax = plt.subplots(figsize=(14, 4))
+        ax.plot(df_a['Mes'], df_a['Intereses'].cumsum() / 1000, color='#0055aa', linewidth=2, label='Intereses A')
+        if df_b is not None:
+            ax.plot(df_b['Mes'], df_b['Intereses'].cumsum() / 1000, color='#ff7f0e', linewidth=2,
+                    linestyle='--', label='Intereses B')
+        ax.set_title('Intereses Acumulados', fontsize=11, fontweight='bold')
+        ax.set_xlabel('Mes', fontsize=9)
+        ax.set_ylabel('Miles €', fontsize=9)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}k'))
+        ax.legend(fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+        return fig
+
+    make_and_add_chart(chart_saldo)
+    make_and_add_chart(chart_cuota)
+    make_and_add_chart(chart_intereses)
 
     # ── TABLA ANUAL ──
     story.append(PageBreak())
