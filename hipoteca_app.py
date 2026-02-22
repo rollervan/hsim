@@ -491,13 +491,13 @@ with st.sidebar:
     tipo_reduc = st.radio("Amortización anticipada:", ["Reducir PLAZO", "Reducir CUOTA"])
 
     with st.expander("Gastos de Vida y Ajustes", expanded=False):
-        g_comida = st.number_input("Comida", value=400)
-        g_suministros = st.number_input("Suministros (Luz/Agua/Internet)", value=150)
-        g_gasolina = st.number_input("Transporte", value=100)
-        g_otros = st.number_input("Ocio y Otros", value=200)
-        g_anuales = st.number_input("Gastos Anuales (Vacaciones, IBI...)", value=3000, step=500)
-        ipc = st.slider("IPC Estimado (%)", 0.0, 10.0, 2.5, step=0.1) / 100
-        subida_salarial = st.slider("Subida Salarial Anual %", 0.0, 10.0, 1.0, step=0.1) / 100
+        g_comida = st.number_input("Comida", value=200)
+        g_suministros = st.number_input("Suministros (Luz/Agua/Internet)", value=100)
+        g_gasolina = st.number_input("Transporte", value=120)
+        g_otros = st.number_input("Ocio y Otros", value=150)
+        g_anuales = st.number_input("Gastos Anuales (Vacaciones, IBI...)", value=3500, step=500)
+        ipc = st.slider("IPC Estimado (%)", 0.0, 10.0, 0.0, step=0.1) / 100
+        subida_salarial = st.slider("Subida Salarial Anual %", 0.0, 10.0, 0.0, step=0.1) / 100
 
     # Previsión Euríbor
     max_anios = max(anios_A, anios_B)
