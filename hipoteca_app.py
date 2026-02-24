@@ -287,8 +287,8 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                            euribor_puntos, presupuesto_anual, tipo_reduc,
                            es_autopromotor, meses_carencia, apertura_pct, coste_cert):
     """
-    Calcula el presupuesto total derivado del anual y evalúa la distribución
-    óptima respetando el límite máximo de amortización por año.
+    Evalúa estrategias de amortización viables basándose estrictamente en el
+    flujo de caja anual disponible del usuario, sin adelantar dinero futuro.
     """
     camino = tuple(euribor_puntos)
 
@@ -307,35 +307,45 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     # Base: sin amortizaciones
     int_base, _, df_base = coste_con_plan([0] * anios)
 
-    presupuesto_total = presupuesto_anual * anios
+    pto_real = min(presupuesto_anual, MAX_AMORT_ANUAL)
 
-    # Estrategia 1: Uniforme (presupuesto anual constante)
-    plan_uniform = [min(presupuesto_anual, MAX_AMORT_ANUAL)] * anios
-    int_uniform, plan_uniform_adj, df_uniform = coste_con_plan(plan_uniform)
+    # Estrategia 1: Anual Constante (La matemáticamente óptima)
+    # Amortiza el flujo de caja anual tan pronto como se genera.
+    plan_anual = [pto_real] * anios
+    int_anual, plan_anual_adj, df_anual = coste_con_plan(plan_anual)
 
-    # Estrategia 2: Concentrada primeros años (agotar total respetando tope anual)
-    plan_early = []
-    pto_restante = presupuesto_total
+    # Estrategia 2: Acumulada (Bloques)
+    # Simula guardar el dinero bajo el colchón y amortizar cada 3 años (o al llegar al máximo).
+    plan_acum = []
+    bolsa = 0
+    tope_acumulacion = min(pto_real * 3, MAX_AMORT_ANUAL)
     for _ in range(anios):
-        amort = min(MAX_AMORT_ANUAL, pto_restante)
-        plan_early.append(amort)
-        pto_restante -= amort
-    int_early, plan_early_adj, df_early = coste_con_plan(plan_early)
+        bolsa += pto_real
+        if bolsa >= tope_acumulacion:
+            plan_acum.append(bolsa)
+            bolsa = 0
+        else:
+            plan_acum.append(0)
+    int_acum, plan_acum_adj, df_acum = coste_con_plan(plan_acum)
 
-    # Estrategia 3: Inversa / últimos años (agotar total al final respetando tope anual)
-    plan_late = []
-    pto_restante = presupuesto_total
+    # Estrategia 3: Diferida (Inversa)
+    # Ahorrar el dinero durante años y ejecutar amortizaciones al final.
+    # Sirve para demostrar en la comparativa el coste de oportunidad de no amortizar pronto.
+    plan_diff = []
+    bolsa_total = pto_real * anios
     for _ in range(anios):
-        amort = min(MAX_AMORT_ANUAL, pto_restante)
-        plan_late.insert(0, amort)
-        pto_restante -= amort
-    int_late, plan_late_adj, df_late = coste_con_plan(plan_late)
+        amort = min(MAX_AMORT_ANUAL, bolsa_total)
+        plan_diff.insert(0, amort)
+        bolsa_total -= amort
+        if bolsa_total < 0: 
+            bolsa_total = 0
+    int_diff, plan_diff_adj, df_diff = coste_con_plan(plan_diff)
 
     # Elegir la mejor
     opciones = [
-        ("Uniforme (anual constante)", int_uniform, plan_uniform_adj, df_uniform),
-        ("Concentrada (primeros años)", int_early, plan_early_adj, df_early),
-        ("Inversa (últimos años)", int_late, plan_late_adj, df_late),
+        ("Anual Constante", int_anual, plan_anual_adj, df_anual),
+        ("Acumulada en bloques", int_acum, plan_acum_adj, df_acum),
+        ("Diferida (al final)", int_diff, plan_diff_adj, df_diff),
     ]
     mejor = min(opciones, key=lambda x: x[1])
 
@@ -349,7 +359,6 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
         'mejor_df': mejor[3],
         'ahorro': int_base - mejor[1],
     }
-
 
 # ==========================================
 # #8 GENERADOR DE INFORME PDF
