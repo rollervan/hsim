@@ -278,86 +278,61 @@ def agregar_por_anio(df: pd.DataFrame) -> pd.DataFrame:
         Tasa=('Tasa', 'mean'),
     ).reset_index()
 
-
 # ==========================================
-# #5 OPTIMIZADOR DE AMORTIZACIÓN
+# #5 AMORTIZAR VS INVERTIR
 # ==========================================
 @st.cache_data(show_spinner=False)
-def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
-                           euribor_puntos, presupuesto_anual, tipo_reduc,
-                           es_autopromotor, meses_carencia, apertura_pct, coste_cert):
-    """
-    Evalúa estrategias de amortización viables basándose estrictamente en el
-    flujo de caja anual disponible del usuario, sin adelantar dinero futuro.
-    """
+def comparar_amortizar_invertir(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
+                                euribor_puntos, presupuesto_anual, rentabilidad_inversion, tipo_reduc,
+                                es_autopromotor, meses_carencia, apertura_pct, coste_cert):
     camino = tuple(euribor_puntos)
 
-    def coste_con_plan(plan):
-        plan_adj = ajustar_amortizaciones(
-            capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
-            camino, plan, tipo_reduc, es_autopromotor, meses_carencia
-        )
-        df = calcular_hipoteca_core(
-            capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
-            camino, tuple(plan_adj), tipo_reduc, es_autopromotor, meses_carencia,
-            apertura_pct, coste_cert
-        )
-        return df['Intereses'].sum(), plan_adj, df
+    # Escenario 1: Base (Sin amortizar)
+    df_base = calcular_hipoteca_core(
+        capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
+        camino, tuple([0] * anios), tipo_reduc, es_autopromotor, meses_carencia,
+        apertura_pct, coste_cert
+    )
+    intereses_base = df_base['Intereses'].sum()
+    meses_base = len(df_base[df_base['Saldo'] > UMBRAL_SALDO])
+    anios_reales_base = int(np.ceil(meses_base / MESES_ANIO))
 
-    # Base: sin amortizaciones
-    int_base, _, df_base = coste_con_plan([0] * anios)
+    # Escenario 2: Amortizar anualmente
+    plan_amort = [presupuesto_anual] * anios
+    plan_adj = ajustar_amortizaciones(
+        capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
+        camino, plan_amort, tipo_reduc, es_autopromotor, meses_carencia
+    )
+    df_amort = calcular_hipoteca_core(
+        capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
+        camino, tuple(plan_adj), tipo_reduc, es_autopromotor, meses_carencia,
+        apertura_pct, coste_cert
+    )
+    intereses_amort = df_amort['Intereses'].sum()
+    ahorro_intereses = intereses_base - intereses_amort
 
-    pto_real = min(presupuesto_anual, MAX_AMORT_ANUAL)
+    # Escenario 3: Invertir
+    tasa_inv = rentabilidad_inversion / 100
+    saldo_inversion = 0
+    capital_invertido = 0
+    evolucion_inv = []
 
-    # Estrategia 1: Anual Constante (La matemáticamente óptima)
-    # Amortiza el flujo de caja anual tan pronto como se genera.
-    plan_anual = [pto_real] * anios
-    int_anual, plan_anual_adj, df_anual = coste_con_plan(plan_anual)
+    for _ in range(anios_reales_base):
+        aportacion = presupuesto_anual
+        saldo_inversion = (saldo_inversion + aportacion) * (1 + tasa_inv)
+        capital_invertido += aportacion
+        evolucion_inv.append(saldo_inversion)
 
-    # Estrategia 2: Acumulada (Bloques)
-    # Simula guardar el dinero bajo el colchón y amortizar cada 3 años (o al llegar al máximo).
-    plan_acum = []
-    bolsa = 0
-    tope_acumulacion = min(pto_real * 3, MAX_AMORT_ANUAL)
-    for _ in range(anios):
-        bolsa += pto_real
-        if bolsa >= tope_acumulacion:
-            plan_acum.append(bolsa)
-            bolsa = 0
-        else:
-            plan_acum.append(0)
-    int_acum, plan_acum_adj, df_acum = coste_con_plan(plan_acum)
-
-    # Estrategia 3: Diferida (Inversa)
-    # Ahorrar el dinero durante años y ejecutar amortizaciones al final.
-    # Sirve para demostrar en la comparativa el coste de oportunidad de no amortizar pronto.
-    plan_diff = []
-    bolsa_total = pto_real * anios
-    for _ in range(anios):
-        amort = min(MAX_AMORT_ANUAL, bolsa_total)
-        plan_diff.insert(0, amort)
-        bolsa_total -= amort
-        if bolsa_total < 0: 
-            bolsa_total = 0
-    int_diff, plan_diff_adj, df_diff = coste_con_plan(plan_diff)
-
-    # Elegir la mejor
-    opciones = [
-        ("Anual Constante", int_anual, plan_anual_adj, df_anual),
-        ("Acumulada en bloques", int_acum, plan_acum_adj, df_acum),
-        ("Diferida (al final)", int_diff, plan_diff_adj, df_diff),
-    ]
-    mejor = min(opciones, key=lambda x: x[1])
+    rendimiento_neto = saldo_inversion - capital_invertido
 
     return {
-        'int_base': int_base,
-        'df_base': df_base,
-        'opciones': opciones,
-        'mejor_nombre': mejor[0],
-        'mejor_int': mejor[1],
-        'mejor_plan': mejor[2],
-        'mejor_df': mejor[3],
-        'ahorro': int_base - mejor[1],
+        'ahorro_intereses': ahorro_intereses,
+        'rendimiento_neto': rendimiento_neto,
+        'capital_invertido': capital_invertido,
+        'saldo_final_inversion': saldo_inversion,
+        'anios_calculo': anios_reales_base,
+        'diferencia': rendimiento_neto - ahorro_intereses,
+        'evolucion_inv': evolucion_inv
     }
 
 # ==========================================
@@ -1301,7 +1276,7 @@ if comparar:
     st.markdown("---")
     tabs = st.tabs(["Evolución Deuda", "Costes Acumulados", "Tabla de Datos",
                     "Resumen Anual", "Análisis de Riesgo", "💰 Liquidez",
-                    "🎯 Optimizador", "📄 Informe PDF"])
+                    "🎯 Amortizar vs Invertir", "📄 Informe PDF"])
 
     with tabs[0]:
         fig_s = go.Figure()
@@ -1394,92 +1369,59 @@ if comparar:
     with tabs[5]:
         mostrar_liquidez(df_median_A, df_median_B, comparar=True)
 
-    # ── OPTIMIZADOR (comparación) ──
+    # ── AMORTIZAR VS INVERTIR ──
     with tabs[6]:
-        st.subheader("🎯 Optimizador de Amortización Anticipada")
-        st.markdown("Dado un presupuesto anual disponible, ¿cómo distribuirlo para pagar el mínimo de intereses?")
-        st.caption("Trabaja sobre la **Opción A**. El resultado es orientativo (escenario mediano de Euríbor).")
+        st.subheader("Amortizar vs. Invertir")
+        st.markdown("Compara el ahorro de intereses al amortizar frente al rendimiento de invertir ese mismo capital.")
 
         col_opt1, col_opt2 = st.columns([1, 2])
         with col_opt1:
             presupuesto_opt = st.number_input(
-                "Presupuesto anual disponible (€)",
-                value=5000, step=500, min_value=500, max_value=MAX_AMORT_ANUAL
+                "Capital disponible anual (Euros)",
+                value=5000, step=500, min_value=500, max_value=MAX_AMORT_ANUAL,
+                key=f"presup_{comparar}"
             )
-            st.caption(f"Máximo por año limitado a {MAX_AMORT_ANUAL:,} €")
-            calcular_opt = st.button("🔍 Calcular plan óptimo", type="primary")
+            rentabilidad_opt = st.number_input(
+                "Rentabilidad neta anual esperada de la inversión (%)",
+                value=5.0, step=0.5, min_value=0.0, max_value=20.0,
+                key=f"rent_{comparar}"
+            )
+            calcular_opt = st.button("Calcular comparativa", type="primary", key=f"btn_opt_{comparar}")
 
         if calcular_opt:
-            with st.spinner("Calculando estrategias..."):
-                resultado = optimizar_amortizacion(
+            with st.spinner("Calculando escenarios..."):
+                resultado = comparar_amortizar_invertir(
                     capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-                    modo_A, camino_ref, presupuesto_opt, tipo_reduc,
+                    modo_A, camino_ref, presupuesto_opt, rentabilidad_opt, tipo_reduc,
                     es_autopromotor, meses_carencia, apertura_A, cert_A
                 )
 
             st.markdown("---")
-            # KPIs del optimizador
             k1, k2, k3 = st.columns(3)
-            k1.metric("Intereses sin amortizar", f"{resultado['int_base']:,.0f} €")
-            k2.metric(f"Mejor estrategia: {resultado['mejor_nombre']}",
-                      f"{resultado['mejor_int']:,.0f} €")
-            k3.metric("💰 Ahorro total en intereses", f"{resultado['ahorro']:,.0f} €",
-                      delta=f"-{resultado['ahorro']:,.0f} €", delta_color="inverse")
+            k1.metric("Ahorro por Amortizar (Intereses evitados)", f"{resultado['ahorro_intereses']:,.0f} €")
+            k2.metric("Ganancia por Invertir (Rendimiento neto)", f"{resultado['rendimiento_neto']:,.0f} €")
+            
+            es_mejor_invertir = resultado['diferencia'] > 0
+            texto_dif = "A favor de Invertir" if es_mejor_invertir else "A favor de Amortizar"
+            k3.metric(texto_dif, f"{abs(resultado['diferencia']):,.0f} €", 
+                      delta=f"{abs(resultado['diferencia']):,.0f} €", 
+                      delta_color="normal" if es_mejor_invertir else "inverse")
 
-            st.markdown("#### Comparativa de estrategias")
-            rows_opt = []
-            for nombre, intereses, plan, _ in resultado['opciones']:
-                meses_opt = len(calcular_hipoteca_core(
-                    capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-                    modo_A, camino_ref, tuple(plan), tipo_reduc,
-                    es_autopromotor, meses_carencia, apertura_A, cert_A
-                ).query(f'Saldo > {UMBRAL_SALDO}'))
-                ahorro_vs_base = resultado['int_base'] - intereses
-                es_mejor = "⭐" if nombre == resultado['mejor_nombre'] else ""
-                rows_opt.append({
-                    'Estrategia': f"{es_mejor} {nombre}",
-                    'Intereses totales': f"{intereses:,.0f} €",
-                    'Ahorro vs sin amortizar': f"{ahorro_vs_base:,.0f} €",
-                    'Plazo resultante': fmt_t(meses_opt),
-                    'Desembolso total extra': f"{sum(plan):,.0f} €",
-                })
-            st.dataframe(pd.DataFrame(rows_opt).set_index('Estrategia'),
-                         use_container_width=True)
-
-            st.markdown("#### Plan anual de la mejor estrategia")
-            mejor_plan = resultado['mejor_plan']
-            df_plan = pd.DataFrame({
-                'Año': range(1, len(mejor_plan) + 1),
-                'Amortización Extra (€)': mejor_plan
-            })
-            # Gráfico de barras del plan
-            fig_plan = go.Figure(go.Bar(
-                x=df_plan['Año'],
-                y=df_plan['Amortización Extra (€)'],
-                marker_color=['#0055aa' if v > 0 else '#dddddd' for v in mejor_plan],
-                text=[f"{v:,.0f} €" if v > 0 else '' for v in mejor_plan],
-                textposition='outside'
-            ))
-            fig_plan.update_layout(template='plotly_white', height=300,
-                                   xaxis_title='Año', yaxis_title='€',
-                                   title='Amortización extra por año (estrategia óptima)')
-            st.plotly_chart(fig_plan, use_container_width=True)
-
-            # Comparativa saldo con y sin optimización
-            fig_comp = go.Figure()
-            fig_comp.add_trace(go.Scatter(
-                x=resultado['df_base']['Mes'], y=resultado['df_base']['Saldo'],
-                name='Sin amortizar', line=dict(color='gray', dash='dash')
-            ))
-            fig_comp.add_trace(go.Scatter(
-                x=resultado['mejor_df']['Mes'], y=resultado['mejor_df']['Saldo'],
-                name=f"Con {resultado['mejor_nombre']}", fill='tozeroy',
-                line=dict(color='#2ca02c', width=2)
-            ))
-            fig_comp.update_layout(template='plotly_white', height=300,
-                                   yaxis_title='Saldo pendiente (€)',
-                                   title='Evolución del saldo: base vs. estrategia óptima')
-            st.plotly_chart(fig_comp, use_container_width=True)
+            # Gráfico comparativo simple
+            fig_vs = go.Figure(data=[
+                go.Bar(name='Amortizar (Ahorro Intereses)', x=['Estrategia'], y=[resultado['ahorro_intereses']], marker_color='#2ca02c'),
+                go.Bar(name='Invertir (Rendimiento Neto)', x=['Estrategia'], y=[resultado['rendimiento_neto']], marker_color='#1f77b4')
+            ])
+            fig_vs.update_layout(
+                title='Comparativa de beneficio neto al final del plazo',
+                barmode='group',
+                template='plotly_white',
+                height=350,
+                yaxis_title='Euros'
+            )
+            st.plotly_chart(fig_vs, use_container_width=True)
+            
+            st.caption(f"Calculado asumiendo aportaciones anuales de {presupuesto_opt:,.0f} € durante {resultado['anios_calculo']} años.")
 
     # ── PDF (comparación) ──
     with tabs[7]:
