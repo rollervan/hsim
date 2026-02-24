@@ -278,13 +278,10 @@ def agregar_por_anio(df: pd.DataFrame) -> pd.DataFrame:
         Tasa=('Tasa', 'mean'),
     ).reset_index()
 
-# ==========================================
-# #5 AMORTIZAR VS INVERTIR
-# ==========================================
 @st.cache_data(show_spinner=False)
 def comparar_amortizar_invertir(capital, anios, diferencial, tipo_fijo, anios_fijos, modo,
-                                euribor_puntos, presupuesto_anual, rentabilidad_inversion, tipo_reduc,
-                                es_autopromotor, meses_carencia, apertura_pct, coste_cert):
+                                euribor_puntos, presupuesto_anual, rentabilidad_inversion, impuestos_pct,
+                                tipo_reduc, es_autopromotor, meses_carencia, apertura_pct, coste_cert):
     camino = tuple(euribor_puntos)
 
     # Escenario 1: Base (Sin amortizar)
@@ -311,28 +308,27 @@ def comparar_amortizar_invertir(capital, anios, diferencial, tipo_fijo, anios_fi
     intereses_amort = df_amort['Intereses'].sum()
     ahorro_intereses = intereses_base - intereses_amort
 
-    # Escenario 3: Invertir
+    # Escenario 3: Invertir (con impuestos al final del periodo)
     tasa_inv = rentabilidad_inversion / 100
     saldo_inversion = 0
     capital_invertido = 0
-    evolucion_inv = []
 
     for _ in range(anios_reales_base):
-        aportacion = presupuesto_anual
-        saldo_inversion = (saldo_inversion + aportacion) * (1 + tasa_inv)
-        capital_invertido += aportacion
-        evolucion_inv.append(saldo_inversion)
+        saldo_inversion = (saldo_inversion + presupuesto_anual) * (1 + tasa_inv)
+        capital_invertido += presupuesto_anual
 
-    rendimiento_neto = saldo_inversion - capital_invertido
+    beneficio_bruto = saldo_inversion - capital_invertido
+    pago_impuestos = beneficio_bruto * (impuestos_pct / 100)
+    rendimiento_neto = beneficio_bruto - pago_impuestos
 
     return {
         'ahorro_intereses': ahorro_intereses,
         'rendimiento_neto': rendimiento_neto,
+        'beneficio_bruto': beneficio_bruto,
+        'pago_impuestos': pago_impuestos,
         'capital_invertido': capital_invertido,
-        'saldo_final_inversion': saldo_inversion,
         'anios_calculo': anios_reales_base,
-        'diferencia': rendimiento_neto - ahorro_intereses,
-        'evolucion_inv': evolucion_inv
+        'diferencia': rendimiento_neto - ahorro_intereses
     }
 
 # ==========================================
@@ -1377,14 +1373,19 @@ if comparar:
         col_opt1, col_opt2 = st.columns([1, 2])
         with col_opt1:
             presupuesto_opt = st.number_input(
-                "Capital disponible anual (Euros)",
+                "Capital disponible anual (€)",
                 value=5000, step=500, min_value=500, max_value=MAX_AMORT_ANUAL,
                 key=f"presup_{comparar}"
             )
             rentabilidad_opt = st.number_input(
-                "Rentabilidad neta anual esperada de la inversión (%)",
+                "Rentabilidad bruta anual esperada (%)",
                 value=5.0, step=0.5, min_value=0.0, max_value=20.0,
                 key=f"rent_{comparar}"
+            )
+            impuestos_opt = st.number_input(
+                "Impuestos sobre beneficios (%)",
+                value=19.0, step=1.0, min_value=0.0, max_value=50.0,
+                key=f"imp_{comparar}"
             )
             calcular_opt = st.button("Calcular comparativa", type="primary", key=f"btn_opt_{comparar}")
 
@@ -1392,35 +1393,31 @@ if comparar:
             with st.spinner("Calculando escenarios..."):
                 resultado = comparar_amortizar_invertir(
                     capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-                    modo_A, camino_ref, presupuesto_opt, rentabilidad_opt, tipo_reduc,
+                    modo_A, camino_ref, presupuesto_opt, rentabilidad_opt, impuestos_opt, tipo_reduc,
                     es_autopromotor, meses_carencia, apertura_A, cert_A
                 )
 
             st.markdown("---")
             k1, k2, k3 = st.columns(3)
-            k1.metric("Ahorro por Amortizar (Intereses evitados)", f"{resultado['ahorro_intereses']:,.0f} €")
-            k2.metric("Ganancia por Invertir (Rendimiento neto)", f"{resultado['rendimiento_neto']:,.0f} €")
+            k1.metric("Ahorro por Amortizar", f"{resultado['ahorro_intereses']:,.0f} €")
+            k2.metric("Ganancia por Invertir (Neta)", f"{resultado['rendimiento_neto']:,.0f} €",
+                      help=f"Beneficio bruto: {resultado['beneficio_bruto']:,.0f} €\nImpuestos: -{resultado['pago_impuestos']:,.0f} €")
             
             es_mejor_invertir = resultado['diferencia'] > 0
-            texto_dif = "A favor de Invertir" if es_mejor_invertir else "A favor de Amortizar"
-            k3.metric(texto_dif, f"{abs(resultado['diferencia']):,.0f} €", 
+            k3.metric("A favor de Invertir" if es_mejor_invertir else "A favor de Amortizar", 
+                      f"{abs(resultado['diferencia']):,.0f} €", 
                       delta=f"{abs(resultado['diferencia']):,.0f} €", 
                       delta_color="normal" if es_mejor_invertir else "inverse")
 
-            # Gráfico comparativo simple
             fig_vs = go.Figure(data=[
                 go.Bar(name='Amortizar (Ahorro Intereses)', x=['Estrategia'], y=[resultado['ahorro_intereses']], marker_color='#2ca02c'),
                 go.Bar(name='Invertir (Rendimiento Neto)', x=['Estrategia'], y=[resultado['rendimiento_neto']], marker_color='#1f77b4')
             ])
             fig_vs.update_layout(
                 title='Comparativa de beneficio neto al final del plazo',
-                barmode='group',
-                template='plotly_white',
-                height=350,
-                yaxis_title='Euros'
+                barmode='group', template='plotly_white', height=350, yaxis_title='Euros'
             )
             st.plotly_chart(fig_vs, use_container_width=True)
-            
             st.caption(f"Calculado asumiendo aportaciones anuales de {presupuesto_opt:,.0f} € durante {resultado['anios_calculo']} años.")
 
     # ── PDF (comparación) ──
@@ -1596,14 +1593,19 @@ else:
         col_opt1, col_opt2 = st.columns([1, 2])
         with col_opt1:
             presupuesto_opt = st.number_input(
-                "Capital disponible anual (Euros)",
+                "Capital disponible anual (€)",
                 value=5000, step=500, min_value=500, max_value=MAX_AMORT_ANUAL,
                 key=f"presup_{comparar}"
             )
             rentabilidad_opt = st.number_input(
-                "Rentabilidad neta anual esperada de la inversión (%)",
+                "Rentabilidad bruta anual esperada (%)",
                 value=5.0, step=0.5, min_value=0.0, max_value=20.0,
                 key=f"rent_{comparar}"
+            )
+            impuestos_opt = st.number_input(
+                "Impuestos sobre beneficios (%)",
+                value=19.0, step=1.0, min_value=0.0, max_value=50.0,
+                key=f"imp_{comparar}"
             )
             calcular_opt = st.button("Calcular comparativa", type="primary", key=f"btn_opt_{comparar}")
 
@@ -1611,37 +1613,33 @@ else:
             with st.spinner("Calculando escenarios..."):
                 resultado = comparar_amortizar_invertir(
                     capital_init_global, anios_A, diferencial_A, tipo_fijo_A, anios_fijos_A,
-                    modo_A, camino_ref, presupuesto_opt, rentabilidad_opt, tipo_reduc,
+                    modo_A, camino_ref, presupuesto_opt, rentabilidad_opt, impuestos_opt, tipo_reduc,
                     es_autopromotor, meses_carencia, apertura_A, cert_A
                 )
 
             st.markdown("---")
             k1, k2, k3 = st.columns(3)
-            k1.metric("Ahorro por Amortizar (Intereses evitados)", f"{resultado['ahorro_intereses']:,.0f} €")
-            k2.metric("Ganancia por Invertir (Rendimiento neto)", f"{resultado['rendimiento_neto']:,.0f} €")
+            k1.metric("Ahorro por Amortizar", f"{resultado['ahorro_intereses']:,.0f} €")
+            k2.metric("Ganancia por Invertir (Neta)", f"{resultado['rendimiento_neto']:,.0f} €",
+                      help=f"Beneficio bruto: {resultado['beneficio_bruto']:,.0f} €\nImpuestos: -{resultado['pago_impuestos']:,.0f} €")
             
             es_mejor_invertir = resultado['diferencia'] > 0
-            texto_dif = "A favor de Invertir" if es_mejor_invertir else "A favor de Amortizar"
-            k3.metric(texto_dif, f"{abs(resultado['diferencia']):,.0f} €", 
+            k3.metric("A favor de Invertir" if es_mejor_invertir else "A favor de Amortizar", 
+                      f"{abs(resultado['diferencia']):,.0f} €", 
                       delta=f"{abs(resultado['diferencia']):,.0f} €", 
                       delta_color="normal" if es_mejor_invertir else "inverse")
 
-            # Gráfico comparativo simple
             fig_vs = go.Figure(data=[
                 go.Bar(name='Amortizar (Ahorro Intereses)', x=['Estrategia'], y=[resultado['ahorro_intereses']], marker_color='#2ca02c'),
                 go.Bar(name='Invertir (Rendimiento Neto)', x=['Estrategia'], y=[resultado['rendimiento_neto']], marker_color='#1f77b4')
             ])
             fig_vs.update_layout(
                 title='Comparativa de beneficio neto al final del plazo',
-                barmode='group',
-                template='plotly_white',
-                height=350,
-                yaxis_title='Euros'
+                barmode='group', template='plotly_white', height=350, yaxis_title='Euros'
             )
             st.plotly_chart(fig_vs, use_container_width=True)
-            
             st.caption(f"Calculado asumiendo aportaciones anuales de {presupuesto_opt:,.0f} € durante {resultado['anios_calculo']} años.")
-
+            
     # ── PDF (individual) ──
     with tabs[7]:
         st.subheader("📄 Exportar Informe PDF")
