@@ -287,11 +287,8 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
                            euribor_puntos, presupuesto_anual, tipo_reduc,
                            es_autopromotor, meses_carencia, apertura_pct, coste_cert):
     """
-    Dado un presupuesto anual fijo, encuentra la distribución de amortizaciones
-    que minimiza el total de intereses pagados.
-    Estrategia: greedy — amortiza cada año lo máximo posible hasta agotar el presupuesto,
-    priorizando los primeros años (donde el interés es mayor).
-    También prueba la estrategia inversa (últimos años) y devuelve la mejor.
+    Calcula el presupuesto total derivado del anual y evalúa la distribución
+    óptima respetando el límite máximo de amortización por año.
     """
     camino = tuple(euribor_puntos)
 
@@ -310,24 +307,35 @@ def optimizar_amortizacion(capital, anios, diferencial, tipo_fijo, anios_fijos, 
     # Base: sin amortizaciones
     int_base, _, df_base = coste_con_plan([0] * anios)
 
-    # Estrategia 1: primeros años primero (greedy estándar — máximo impacto en intereses)
-    plan_early = [min(presupuesto_anual, MAX_AMORT_ANUAL)] * anios
-    int_early, plan_early_adj, df_early = coste_con_plan(plan_early)
+    presupuesto_total = presupuesto_anual * anios
 
-    # Estrategia 2: repartir uniformemente
-    reparto = min(presupuesto_anual, MAX_AMORT_ANUAL)
-    plan_uniform = [reparto] * anios
+    # Estrategia 1: Uniforme (presupuesto anual constante)
+    plan_uniform = [min(presupuesto_anual, MAX_AMORT_ANUAL)] * anios
     int_uniform, plan_uniform_adj, df_uniform = coste_con_plan(plan_uniform)
 
-    # Estrategia 3: concentrar todo en año 1
-    plan_yr1 = [min(presupuesto_anual * anios, MAX_AMORT_ANUAL)] + [0] * (anios - 1)
-    int_yr1, plan_yr1_adj, df_yr1 = coste_con_plan(plan_yr1)
+    # Estrategia 2: Concentrada primeros años (agotar total respetando tope anual)
+    plan_early = []
+    pto_restante = presupuesto_total
+    for _ in range(anios):
+        amort = min(MAX_AMORT_ANUAL, pto_restante)
+        plan_early.append(amort)
+        pto_restante -= amort
+    int_early, plan_early_adj, df_early = coste_con_plan(plan_early)
+
+    # Estrategia 3: Inversa / últimos años (agotar total al final respetando tope anual)
+    plan_late = []
+    pto_restante = presupuesto_total
+    for _ in range(anios):
+        amort = min(MAX_AMORT_ANUAL, pto_restante)
+        plan_late.insert(0, amort)
+        pto_restante -= amort
+    int_late, plan_late_adj, df_late = coste_con_plan(plan_late)
 
     # Elegir la mejor
     opciones = [
-        ("Distribuido (cada año)", int_early, plan_early_adj, df_early),
-        ("Uniforme (igual cada año)", int_uniform, plan_uniform_adj, df_uniform),
-        ("Concentrado (año 1)", int_yr1, plan_yr1_adj, df_yr1),
+        ("Uniforme (anual constante)", int_uniform, plan_uniform_adj, df_uniform),
+        ("Concentrada (primeros años)", int_early, plan_early_adj, df_early),
+        ("Inversa (últimos años)", int_late, plan_late_adj, df_late),
     ]
     mejor = min(opciones, key=lambda x: x[1])
 
